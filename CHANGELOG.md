@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Configurable worker concurrency and optional rate limiting for throughput control.
+- Redis security hardening options (username, TLS, ready checks, connection timeouts).
+- Idempotency keys, jittered scheduling, and interval-based `scheduleEvery` helper.
+- Observability adapters for metrics and tracing with duration instrumentation.
+- Operational controls: pause/resume/drain, DLQ replay, bulk retries, and health checks.
+- Documentation updates with new API examples and configuration guidance.
+
 ## [1.0.0] - 2024-11-21
 
 ### Added

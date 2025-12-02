@@ -26,4 +26,6 @@ export {
   JobProcessor,
   JobEventHandler,
   QueueEvent,
+  TelemetryAdapter,
+  MetricsAdapter,
 } from './types';

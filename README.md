@@ -7,13 +7,14 @@ Enterprise-ready background job processing package built on **BullMQ** and **Red
 ✨ **Core Capabilities**
 
 - **Job Queue Management**: Robust background job processing powered by BullMQ
-- **Job Scheduling**: Support for cron expressions and interval-based scheduling
+- **Job Scheduling**: Support for cron expressions and interval-based scheduling with jitter
 - **Retry Logic**: Configurable retry strategies with exponential and fixed backoff
 - **Job Status Tracking**: Real-time monitoring of job states and progress
-- **Dead Letter Queue (DLQ)**: Automatic handling of permanently failed jobs
+- **Dead Letter Queue (DLQ)**: Automatic handling of permanently failed jobs with replay helpers
 - **Event-Driven Architecture**: Comprehensive event system for job lifecycle hooks
 - **Type-Safe**: Full TypeScript support with comprehensive type definitions
-- **Enterprise-Ready**: Production-grade error handling and security defaults
+- **Enterprise-Ready**: Hardened Redis defaults (TLS, ready checks) and worker concurrency controls
+- **Observability Hooks**: Pluggable metrics and tracing adapters for fleet-level insight
 
 ## Installation
 
@@ -68,9 +69,12 @@ const queue = new JobQueue({
   redis: {
     host: 'localhost',
     port: 6379,
+    username: 'default',
     password: 'your-password', // Optional
     db: 0,
     retryStrategy: (times) => Math.min(times * 50, 2000),
+    enableReadyCheck: true,
+    tls: {}, // Provide TLS options for production Redis
   },
 
   // Default job options
@@ -112,6 +116,19 @@ const queue = new JobQueue({
     lockDuration: 30000,
     lockRenewTime: 15000,
   },
+
+  // Worker controls
+  worker: {
+    concurrency: 20,
+    limiter: {
+      max: 100,
+      duration: 1000,
+    },
+  },
+
+  // Observability hooks
+  telemetry: tracer,
+  metrics: metricsAdapter,
 });
 ```
 
@@ -146,6 +163,8 @@ const jobId = await queue.addJob(
     attempts: 5,
     delay: 1000,
     priority: 10,
+    idempotencyKey: 'send-email-user@example.com',
+    jitter: 500,
   }
 );
 ```
@@ -157,6 +176,15 @@ Schedule a recurring job with a cron expression.
 ```typescript
 // Run daily at 2 AM
 await queue.scheduleJob('daily-report', { type: 'full' }, '0 2 * * *');
+```
+
+#### `scheduleEvery(jobName, data, intervalMs, options?)`
+
+Schedule a recurring job on a fixed interval with optional jitter.
+
+```typescript
+// Run every 30 seconds with up to 2 seconds of jitter
+await queue.scheduleEvery('heartbeat', { service: 'api' }, 30_000, { jitter: 2000 });
 ```
 
 #### `retryJob(jobId)`
@@ -181,6 +209,25 @@ Clear all jobs from the queue.
 
 ```typescript
 await queue.clear();
+```
+
+#### `bulkRetry(status, limit?)`
+
+Retry jobs in bulk for a given status (e.g., failed).
+
+```typescript
+await queue.bulkRetry(JobStatus.FAILED, 100);
+```
+
+#### `pause()` / `resume()` / `drain()`
+
+Operational controls for pausing workers, resuming processing, or draining the queue safely.
+
+```typescript
+await queue.pause();
+// maintenance window
+await queue.resume();
+await queue.drain();
 ```
 
 ### Status Tracking
@@ -226,8 +273,17 @@ console.log(stats);
 //   completed: 1000,
 //   failed: 2,
 //   delayed: 3,
-//   paused: 0
+//   paused: 0,
+//   latencyMs: 15,
 // }
+```
+
+#### `healthCheck()`
+
+Verify Redis connectivity and queue health.
+
+```typescript
+const healthy = await queue.healthCheck();
 ```
 
 ### Dead Letter Queue
@@ -241,6 +297,16 @@ const dlqJobs = await queue.getDLQJobs(100);
 dlqJobs.forEach((job) => {
   console.log(`Failed job: ${job.id} - ${job.data.error}`);
 });
+```
+
+#### `replayDLQ(limit?)`
+
+Replay DLQ jobs back to the primary queue.
+
+```typescript
+// Move up to 50 DLQ jobs back into the main queue
+const replayed = await queue.replayDLQ(50);
+console.log(`Replayed ${replayed} jobs`);
 ```
 
 ### Event System
@@ -401,6 +467,30 @@ queue.process('big-task', async (job) => {
     job.progress((i + 1) * 10);
   }
 });
+```
+
+### 3. **Observability Hooks**
+
+Wire the queue into your metrics and tracing stacks using lightweight adapters.
+
+```typescript
+const metricsAdapter = {
+  increment: (name, value = 1, tags) => statsd.increment(name, value, tags),
+  observe: (name, value, tags) => statsd.histogram(name, value, tags),
+};
+
+const tracerAdapter = {
+  startSpan: (name, attributes) => {
+    const span = tracer.startSpan(name, { attributes });
+    return {
+      setAttribute: (key, value) => span.setAttribute(key, value),
+      recordException: (error) => span.recordException(error),
+      end: () => span.end(),
+    };
+  },
+};
+
+const queue = new JobQueue({ name: 'observability-demo', metrics: metricsAdapter, telemetry: tracerAdapter });
 ```
 
 ### 3. **Resource Cleanup**
