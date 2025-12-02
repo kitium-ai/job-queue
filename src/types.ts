@@ -13,7 +13,7 @@ export enum JobStatus {
   DELAYED = 'delayed',
   WAITING = 'waiting',
   PAUSED = 'paused',
-  DLQ = 'dlq'
+  DLQ = 'dlq',
 }
 
 /**
@@ -23,7 +23,7 @@ export enum JobResult {
   SUCCESS = 'success',
   FAILURE = 'failure',
   RETRY = 'retry',
-  SKIPPED = 'skipped'
+  SKIPPED = 'skipped',
 }
 
 /**
@@ -122,7 +122,7 @@ export interface DLQConfig {
   enabled: boolean;
   queueName?: string;
   maxRetries?: number;
-  notificationHandler?: (job: any) => Promise<void>;
+  notificationHandler?: (job: unknown) => Promise<void>;
 }
 
 /**
@@ -151,20 +151,26 @@ export interface QueueConfig {
 /**
  * Job processor callback type
  */
-export type JobProcessor<T extends JobData = JobData, R = unknown> = (
-  job: {
-    id: string;
-    name: string;
-    data: T;
-    attempts: number;
-    progress: (percentage: number) => void;
-  }
-) => Promise<R>;
+export type JobProcessor<T extends JobData = JobData, R = unknown> = (job: {
+  id: string;
+  name: string;
+  data: T;
+  attempts: number;
+  progress: (percentage: number) => void;
+}) => Promise<R>;
 
 /**
  * Job event handler type
  */
-export type JobEventHandler = (job: any, error?: Error) => Promise<void> | void;
+export interface DLQJobInfo {
+  id: string | null | undefined;
+  name: string;
+  data: JobData;
+  attempts: number;
+  createdAt: number;
+}
+
+export type JobEventHandler = (job: unknown, error?: Error) => Promise<void> | void;
 
 /**
  * Queue event names
@@ -178,5 +184,5 @@ export enum QueueEvent {
   JOB_STALLED = 'job-stalled',
   JOB_PROGRESS = 'job-progress',
   JOB_DLQ = 'job-dlq',
-  QUEUE_ERROR = 'queue-error'
+  QUEUE_ERROR = 'queue-error',
 }

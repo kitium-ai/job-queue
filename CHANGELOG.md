@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 #### Core Features
+
 - **JobQueue Class**: Main class for managing background job processing with BullMQ
   - Job addition and management
   - Worker lifecycle management
@@ -69,6 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Database selection (db parameter)
 
 #### Type Safety
+
 - Comprehensive TypeScript type definitions
 - Type-safe job processors with generics
 - Configuration interfaces for all components
@@ -76,6 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Job data and execution result types
 
 #### Configuration Options
+
 - Default job options for all queues
 - Per-job option overrides
 - Retry strategy configuration
@@ -84,6 +87,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Redis connection configuration
 
 #### Examples
+
 - **basic-usage.ts**: Simple job queue setup with email processing
 - **scheduling.ts**: Cron-based and interval scheduling examples
 - **retry-logic.ts**: Exponential backoff retry demonstration
@@ -91,6 +95,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **dlq-handling.ts**: Dead letter queue operations and monitoring
 
 #### Documentation
+
 - Comprehensive README with:
   - Feature overview
   - Installation instructions
@@ -105,6 +110,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - TypeScript support documentation
 
 #### Testing
+
 - Jest configuration with TypeScript support
 - Unit test suite covering:
   - Job processing registration
@@ -117,6 +123,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Queue cleanup
 
 #### Build & Tooling
+
 - TypeScript strict mode configuration
 - Source maps for debugging
 - Declaration files for type checking
@@ -126,6 +133,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Features in Detail
 
 #### Job Processing
+
 ```typescript
 queue.process('job-name', async (job) => {
   job.progress(50);
@@ -134,29 +142,32 @@ queue.process('job-name', async (job) => {
 ```
 
 #### Scheduling
+
 ```typescript
 // Cron scheduling
 await queue.scheduleJob('daily-job', data, '0 2 * * *');
 
 // Interval scheduling
 await queue.addJob('job', data, {
-  repeat: { every: 3600000 }
+  repeat: { every: 3600000 },
 });
 ```
 
 #### Retry Configuration
+
 ```typescript
 await queue.addJob('job', data, {
   attempts: 5,
   backoff: {
     type: 'exponential',
     delay: 1000,
-    maxDelay: 60000
-  }
+    maxDelay: 60000,
+  },
 });
 ```
 
 #### Status Tracking
+
 ```typescript
 const status = await queue.getJobStatus(jobId);
 const stats = await queue.getStats();
@@ -164,6 +175,7 @@ const activeJobs = await queue.getJobsByStatus(JobStatus.ACTIVE);
 ```
 
 #### Event Handling
+
 ```typescript
 queue.on(QueueEvent.JOB_COMPLETED, (job) => {
   console.log(`Completed: ${job?.name}`);
@@ -175,14 +187,16 @@ queue.on(QueueEvent.JOB_DLQ, (job, error) => {
 ```
 
 #### DLQ Management
+
 ```typescript
 const dlqJobs = await queue.getDLQJobs();
-dlqJobs.forEach(job => {
+dlqJobs.forEach((job) => {
   console.log(`${job.id}: ${job.data.error}`);
 });
 ```
 
 ### Security Features
+
 - Secure Redis defaults (no anonymous connections)
 - Connection retry strategy to prevent connection storms
 - Error message sanitization in logs
@@ -191,6 +205,7 @@ dlqJobs.forEach(job => {
 - Job data isolation from sensitive information
 
 ### Performance Features
+
 - Configurable worker concurrency
 - Job priority support
 - Batch job operations
@@ -199,12 +214,14 @@ dlqJobs.forEach(job => {
 - Stall detection and recovery
 
 ### Compatibility
+
 - Node.js 16+
 - TypeScript 5.0+
 - BullMQ 5.0+
 - Redis 5.0+ (with ioredis 5.3+)
 
 ### Project Structure
+
 ```
 ├── src/
 │   ├── JobQueue.ts      # Main JobQueue class
@@ -230,6 +247,7 @@ dlqJobs.forEach(job => {
 ## [Unreleased]
 
 ### Planned Features
+
 - [ ] Cluster-aware job distribution
 - [ ] Job rate limiting
 - [ ] Webhook notifications
@@ -247,6 +265,7 @@ dlqJobs.forEach(job => {
 - [ ] Dashboard/UI for monitoring
 
 ### Under Consideration
+
 - Multi-queue coordination
 - Queue prioritization
 - Job cancellation
@@ -291,6 +310,7 @@ None reported in 1.0.0
 For security vulnerabilities, please email security@kitiumai.com instead of using the issue tracker.
 
 Supported versions receiving security updates:
+
 - 1.0.x (current)
 
 ---

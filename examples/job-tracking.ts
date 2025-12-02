@@ -66,7 +66,9 @@ async function jobTrackingExample() {
       for (const jobId of jobIds) {
         const status = await queue.getJobStatus(jobId);
         const progressBar = createProgressBar(status.progress);
-        console.log(`${jobId.substring(0, 8)}: [${progressBar}] ${status.progress.toFixed(0)}% - ${status.status}`);
+        console.log(
+          `${jobId.substring(0, 8)}: [${progressBar}] ${status.progress.toFixed(0)}% - ${status.status}`
+        );
       }
       console.log('');
     } catch (error) {

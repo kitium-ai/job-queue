@@ -36,18 +36,10 @@ async function schedulingExample() {
 
   // Schedule jobs with cron patterns
   // Run daily at 2 AM
-  await queue.scheduleJob(
-    'daily-report',
-    { date: new Date().toISOString() },
-    '0 2 * * *'
-  );
+  await queue.scheduleJob('daily-report', { date: new Date().toISOString() }, '0 2 * * *');
 
   // Run every hour
-  await queue.scheduleJob(
-    'hourly-sync',
-    { timestamp: Date.now() },
-    '0 * * * *'
-  );
+  await queue.scheduleJob('hourly-sync', { timestamp: Date.now() }, '0 * * * *');
 
   // Run every 5 minutes (using interval instead of cron)
   await queue.addJob(

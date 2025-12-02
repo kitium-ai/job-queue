@@ -5,6 +5,7 @@ Enterprise-ready background job processing package built on **BullMQ** and **Red
 ## Features
 
 ✨ **Core Capabilities**
+
 - **Job Queue Management**: Robust background job processing powered by BullMQ
 - **Job Scheduling**: Support for cron expressions and interval-based scheduling
 - **Retry Logic**: Configurable retry strategies with exponential and fixed backoff
@@ -119,6 +120,7 @@ const queue = new JobQueue({
 ### Job Processing
 
 #### `process(jobName, processor)`
+
 Register a processor function for a job type.
 
 ```typescript
@@ -131,31 +133,34 @@ queue.process('task-name', async (job) => {
 ### Job Management
 
 #### `addJob(jobName, data, options?)`
+
 Add a job to the queue.
 
 ```typescript
-const jobId = await queue.addJob('send-email', {
-  to: 'user@example.com',
-}, {
-  attempts: 5,
-  delay: 1000,
-  priority: 10,
-});
+const jobId = await queue.addJob(
+  'send-email',
+  {
+    to: 'user@example.com',
+  },
+  {
+    attempts: 5,
+    delay: 1000,
+    priority: 10,
+  }
+);
 ```
 
 #### `scheduleJob(jobName, data, cronPattern, options?)`
+
 Schedule a recurring job with a cron expression.
 
 ```typescript
 // Run daily at 2 AM
-await queue.scheduleJob(
-  'daily-report',
-  { type: 'full' },
-  '0 2 * * *'
-);
+await queue.scheduleJob('daily-report', { type: 'full' }, '0 2 * * *');
 ```
 
 #### `retryJob(jobId)`
+
 Manually retry a job.
 
 ```typescript
@@ -163,6 +168,7 @@ await queue.retryJob(jobId);
 ```
 
 #### `removeJob(jobId)`
+
 Remove a job from the queue.
 
 ```typescript
@@ -170,6 +176,7 @@ await queue.removeJob(jobId);
 ```
 
 #### `clear()`
+
 Clear all jobs from the queue.
 
 ```typescript
@@ -179,6 +186,7 @@ await queue.clear();
 ### Status Tracking
 
 #### `getJobStatus(jobId)`
+
 Get detailed status information for a specific job.
 
 ```typescript
@@ -197,6 +205,7 @@ console.log(status);
 ```
 
 #### `getJobsByStatus(status, limit?)`
+
 Query jobs by their current status.
 
 ```typescript
@@ -205,6 +214,7 @@ const failedJobs = await queue.getJobsByStatus(JobStatus.FAILED, 50);
 ```
 
 #### `getStats()`
+
 Get queue statistics.
 
 ```typescript
@@ -223,11 +233,12 @@ console.log(stats);
 ### Dead Letter Queue
 
 #### `getDLQJobs(limit?)`
+
 Get jobs that have failed and moved to the DLQ.
 
 ```typescript
 const dlqJobs = await queue.getDLQJobs(100);
-dlqJobs.forEach(job => {
+dlqJobs.forEach((job) => {
   console.log(`Failed job: ${job.id} - ${job.data.error}`);
 });
 ```
@@ -235,6 +246,7 @@ dlqJobs.forEach(job => {
 ### Event System
 
 #### `on(event, handler)`
+
 Register an event handler.
 
 ```typescript
@@ -252,6 +264,7 @@ queue.on(QueueEvent.JOB_PROGRESS, (job) => {
 ```
 
 **Available Events:**
+
 - `JOB_ADDED` - Job added to queue
 - `JOB_STARTED` - Job processing started
 - `JOB_COMPLETED` - Job completed successfully
@@ -265,6 +278,7 @@ queue.on(QueueEvent.JOB_PROGRESS, (job) => {
 ### Cleanup
 
 #### `close()`
+
 Close the queue and release all resources.
 
 ```typescript
@@ -274,6 +288,7 @@ await queue.close();
 ## Retry Strategies
 
 ### Exponential Backoff
+
 Delay increases exponentially with each retry.
 
 ```typescript
@@ -281,14 +296,15 @@ await queue.addJob('api-call', data, {
   attempts: 5,
   backoff: {
     type: 'exponential',
-    delay: 1000,      // 1s * 2^0
-    maxDelay: 60000,  // Cap at 60s
+    delay: 1000, // 1s * 2^0
+    maxDelay: 60000, // Cap at 60s
   },
 });
 // Delays: 1s, 2s, 4s, 8s, 16s
 ```
 
 ### Fixed Backoff
+
 Constant delay between retries.
 
 ```typescript
@@ -346,20 +362,21 @@ queue.on(QueueEvent.JOB_DLQ, async (job) => {
 
 ```typescript
 enum JobStatus {
-  PENDING = 'pending',    // Job created but not yet queued
-  WAITING = 'waiting',    // Waiting to be processed
-  ACTIVE = 'active',      // Currently being processed
+  PENDING = 'pending', // Job created but not yet queued
+  WAITING = 'waiting', // Waiting to be processed
+  ACTIVE = 'active', // Currently being processed
   COMPLETED = 'completed', // Completed successfully
-  FAILED = 'failed',      // Failed (will retry)
-  DELAYED = 'delayed',    // Waiting for delay to expire
-  PAUSED = 'paused',      // Queue is paused
-  DLQ = 'dlq',            // Dead Letter Queue
+  FAILED = 'failed', // Failed (will retry)
+  DELAYED = 'delayed', // Waiting for delay to expire
+  PAUSED = 'paused', // Queue is paused
+  DLQ = 'dlq', // Dead Letter Queue
 }
 ```
 
 ## Best Practices
 
 ### 1. **Error Handling**
+
 Always handle errors gracefully in your processors:
 
 ```typescript
@@ -374,6 +391,7 @@ queue.process('task', async (job) => {
 ```
 
 ### 2. **Progress Reporting**
+
 Report progress for long-running jobs:
 
 ```typescript
@@ -386,6 +404,7 @@ queue.process('big-task', async (job) => {
 ```
 
 ### 3. **Resource Cleanup**
+
 Always close the queue when done:
 
 ```typescript
@@ -396,6 +415,7 @@ process.on('SIGTERM', async () => {
 ```
 
 ### 4. **Monitoring**
+
 Set up event handlers for monitoring:
 
 ```typescript
@@ -411,6 +431,7 @@ queue.on(QueueEvent.JOB_DLQ, (job) => {
 ```
 
 ### 5. **Idempotency**
+
 Design jobs to be idempotent when possible:
 
 ```typescript
@@ -484,6 +505,7 @@ queue.process('send-email', processor);
 ## Contributing
 
 Contributions are welcome! Please ensure:
+
 - Code is properly typed with TypeScript
 - All tests pass
 - Examples demonstrate the feature

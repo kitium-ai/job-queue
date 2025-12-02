@@ -88,12 +88,15 @@ Time: ${job.data.timestamp}
   console.log('\n📋 Dead Letter Queue Contents:');
   console.log(`Total DLQ jobs: ${dlqJobs.length}`);
   dlqJobs.forEach((job) => {
-    console.log(`
+    console.log(
+      `
   - Job ID: ${job.id}
     Name: ${job.name}
     Attempts: ${job.attempts}
     Created: ${new Date(job.createdAt).toISOString()}
-    `, job.data);
+    `,
+      job.data
+    );
   });
 
   // Get queue statistics

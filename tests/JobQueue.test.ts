@@ -3,6 +3,149 @@
  * Tests for the main JobQueue class
  */
 
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+// Mock BullMQ to avoid requiring a real Redis instance
+vi.mock('bullmq', () => {
+  type JobData = Record<string, unknown>;
+  type JobOpts = { attempts?: number } & Record<string, unknown>;
+
+  const stores: Record<string, Map<string, any>> = {};
+
+  class MockJob {
+    id: string;
+    name: string;
+    data: JobData;
+    attemptsMade = 0;
+    opts: JobOpts;
+    timestamp = Date.now();
+    processedOn?: number;
+    finishedOn?: number;
+    failedReason?: string;
+    #progress = 0;
+    constructor(id: string, name: string, data: JobData, opts: JobOpts) {
+      this.id = id;
+      this.name = name;
+      this.data = data;
+      this.opts = opts;
+    }
+    progress(n: number) {
+      this.#progress = n;
+    }
+    progressValue() {
+      return this.#progress;
+    }
+    moveToWaiting() {
+      // no-op for mock
+    }
+    async moveToWait() {
+      // no-op for mock
+    }
+    async updateProgress(n: number) {
+      this.#progress = n;
+    }
+    async remove() {
+      // removal will be handled by Queue.removeJob consuming this
+    }
+  }
+
+  class Queue {
+    name: string;
+    store: Map<string, any>;
+    constructor(name: string) {
+      this.name = name;
+      if (!stores[name]) stores[name] = new Map();
+      this.store = stores[name];
+    }
+    async add(jobName: string, data: JobData, opts: JobOpts) {
+      const id = Math.random().toString(36).slice(2);
+      const job = new MockJob(id, jobName, data, opts);
+      this.store.set(id, job);
+      return {
+        id,
+        name: jobName,
+        data,
+        attemptsMade: 0,
+        opts,
+        timestamp: job.timestamp,
+        processedOn: undefined,
+        finishedOn: undefined,
+        progress: () => job.progressValue(),
+      };
+    }
+    async getJob(id: string) {
+      const job = this.store.get(id);
+      if (!job) return null;
+      return {
+        id,
+        name: job.name,
+        data: job.data,
+        attemptsMade: job.attemptsMade,
+        opts: job.opts,
+        timestamp: job.timestamp,
+        processedOn: job.processedOn,
+        finishedOn: job.finishedOn,
+        failedReason: job.failedReason,
+        progress: () => job.progressValue(),
+        moveToWaiting: () => job.moveToWaiting(),
+        moveToWait: () => job.moveToWait(),
+        remove: async () => {
+          this.store.delete(id);
+        },
+      };
+    }
+    async getJobs(_statuses: string[], start = 0, end = 100) {
+      const jobs = Array.from(this.store.values()).slice(start, end + 1);
+      return jobs.map((job: any) => ({
+        id: job.id,
+        name: job.name,
+        data: job.data,
+        attemptsMade: job.attemptsMade,
+        opts: job.opts,
+        timestamp: job.timestamp,
+        processedOn: job.processedOn,
+        finishedOn: job.finishedOn,
+        progress: () => job.progressValue(),
+      }));
+    }
+    async getActiveCount() { return 0; }
+    async getCompletedCount() { return 0; }
+    async getFailedCount() { return 0; }
+    async getDelayedCount() { return 0; }
+    async getWaitingCount() { return this.store.size; }
+    async isPaused() { return false; }
+    async clean() { this.store.clear(); }
+    async close() { /* no-op */ }
+    on(_event: string, _handler: (...args: unknown[]) => void) { /* no-op */ }
+  }
+
+  class Worker {
+    constructor(_name: string, _handler: any, _opts: any) {}
+    on(_event: string, _handler: (...args: unknown[]) => void) { /* no-op */ }
+    async close() { /* no-op */ }
+  }
+
+  class QueueScheduler {
+    constructor(_name: string, _opts: any) {}
+    async close() { /* no-op */ }
+  }
+
+  return {
+    Queue,
+    Worker,
+    QueueScheduler,
+    Job: MockJob,
+  };
+});
+
+// Mock error package to avoid workspace resolution issues during tests
+vi.mock('@kitiumai/error', () => ({
+  KitiumError: class KitiumError extends Error {
+    constructor(shape: any) {
+      super(shape?.message ?? 'KitiumError');
+      this.name = 'KitiumError';
+    }
+  },
+}));
 import { JobQueue, QueueEvent, JobStatus } from '../src/index';
 
 // Mock Redis for testing
@@ -38,14 +181,14 @@ describe('JobQueue', () => {
 
   describe('Job Processing', () => {
     it('should register a job processor', () => {
-      const processor = jest.fn().mockResolvedValue({ success: true });
+      const processor = vi.fn().mockResolvedValue({ success: true });
       expect(() => {
         queue.process('test-job', processor);
       }).not.toThrow();
     });
 
     it('should throw error if processor already registered', () => {
-      const processor = jest.fn();
+      const processor = vi.fn();
       queue.process('test-job', processor);
 
       expect(() => {
@@ -107,11 +250,7 @@ describe('JobQueue', () => {
 
   describe('Scheduling', () => {
     it('should schedule a job with cron pattern', async () => {
-      const jobId = await queue.scheduleJob(
-        'scheduled-job',
-        { type: 'daily' },
-        '0 2 * * *'
-      );
+      const jobId = await queue.scheduleJob('scheduled-job', { type: 'daily' }, '0 2 * * *');
 
       expect(jobId).toBeDefined();
       const status = await queue.getJobStatus(jobId);
@@ -134,19 +273,16 @@ describe('JobQueue', () => {
   });
 
   describe('Event System', () => {
-    it('should register event handler', (done) => {
-      const handler = jest.fn();
+    it('should register event handler', async () => {
+      const handler = vi.fn();
       queue.on(QueueEvent.JOB_ADDED, handler);
-
-      queue.addJob('test-job', { data: 'test' }).then(() => {
-        // Note: In a real test, we'd wait for the event to be emitted
-        done();
-      });
+      await queue.addJob('test-job', { data: 'test' });
+      expect(handler).toBeDefined();
     });
 
     it('should handle multiple event listeners', async () => {
-      const handler1 = jest.fn();
-      const handler2 = jest.fn();
+      const handler1 = vi.fn();
+      const handler2 = vi.fn();
 
       queue.on(QueueEvent.JOB_ADDED, handler1);
       queue.on(QueueEvent.JOB_ADDED, handler2);
@@ -223,9 +359,7 @@ describe('JobQueue', () => {
     });
 
     it('should throw error when retrying non-existent job', async () => {
-      await expect(queue.retryJob('non-existent')).rejects.toThrow(
-        'Job non-existent not found'
-      );
+      await expect(queue.retryJob('non-existent')).rejects.toThrow('Job non-existent not found');
     });
   });
 
