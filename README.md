@@ -490,7 +490,11 @@ const tracerAdapter = {
   },
 };
 
-const queue = new JobQueue({ name: 'observability-demo', metrics: metricsAdapter, telemetry: tracerAdapter });
+const queue = new JobQueue({
+  name: 'observability-demo',
+  metrics: metricsAdapter,
+  telemetry: tracerAdapter,
+});
 ```
 
 ### 3. **Resource Cleanup**

@@ -2,10 +2,23 @@
   "name": "@kitiumai/job-queue",
   "version": "1.0.0",
   "description": "Enterprise-ready BullMQ job processing package with scheduling, retries, and DLQ handling",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
   "files": [
-    "dist"
+    "dist/**/*",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsc",
@@ -53,14 +66,51 @@
     "typescript": "^5.6.0"
   },
   "keywords": [
-    "bullmq",
-    "job",
+    "job-queue",
     "queue",
+    "bullmq",
+    "redis",
+    "worker",
+    "worker-queue",
+    "distributed-jobs",
+    "background-jobs",
+    "task-runner",
+    "task-scheduler",
+    "cron",
     "scheduling",
     "retry",
     "dead-letter-queue",
-    "background-jobs"
+    "dlq",
+    "backoff",
+    "rate-limiting",
+    "concurrency",
+    "metrics",
+    "observability",
+    "typescript",
+    "nodejs",
+    "microservices",
+    "event-driven",
+    "resilient",
+    "high-availability",
+    "kitium",
+    "kitiumai",
+    "enterprise-ready"
   ],
   "author": "Kitium AI",
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kitium-ai/job-queue.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kitium-ai/job-queue/issues"
+  },
+  "homepage": "https://github.com/kitium-ai/job-queue#readme",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }

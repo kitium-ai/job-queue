@@ -107,26 +107,50 @@ vi.mock('bullmq', () => {
         progress: () => job.progressValue(),
       }));
     }
-    async getActiveCount() { return 0; }
-    async getCompletedCount() { return 0; }
-    async getFailedCount() { return 0; }
-    async getDelayedCount() { return 0; }
-    async getWaitingCount() { return this.store.size; }
-    async isPaused() { return false; }
-    async clean() { this.store.clear(); }
-    async close() { /* no-op */ }
-    on(_event: string, _handler: (...args: unknown[]) => void) { /* no-op */ }
+    async getActiveCount() {
+      return 0;
+    }
+    async getCompletedCount() {
+      return 0;
+    }
+    async getFailedCount() {
+      return 0;
+    }
+    async getDelayedCount() {
+      return 0;
+    }
+    async getWaitingCount() {
+      return this.store.size;
+    }
+    async isPaused() {
+      return false;
+    }
+    async clean() {
+      this.store.clear();
+    }
+    async close() {
+      /* no-op */
+    }
+    on(_event: string, _handler: (...args: unknown[]) => void) {
+      /* no-op */
+    }
   }
 
   class Worker {
     constructor(_name: string, _handler: any, _opts: any) {}
-    on(_event: string, _handler: (...args: unknown[]) => void) { /* no-op */ }
-    async close() { /* no-op */ }
+    on(_event: string, _handler: (...args: unknown[]) => void) {
+      /* no-op */
+    }
+    async close() {
+      /* no-op */
+    }
   }
 
   class QueueScheduler {
     constructor(_name: string, _opts: any) {}
-    async close() { /* no-op */ }
+    async close() {
+      /* no-op */
+    }
   }
 
   return {

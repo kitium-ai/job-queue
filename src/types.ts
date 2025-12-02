@@ -164,7 +164,7 @@ export interface QueueConfig {
   };
   telemetry?: TelemetryAdapter;
   metrics?: MetricsAdapter;
-};
+}
 
 /**
  * Job processor callback type
@@ -226,9 +226,5 @@ export interface SpanHandle {
  */
 export interface MetricsAdapter {
   increment: (name: string, value?: number, tags?: Record<string, string>) => void;
-  observe: (
-    name: string,
-    value: number,
-    tags?: Record<string, string>
-  ) => void;
+  observe: (name: string, value: number, tags?: Record<string, string>) => void;
 }

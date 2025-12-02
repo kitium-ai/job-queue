@@ -134,10 +134,7 @@ export class JobQueue {
       });
     }
 
-    this.processors.set(
-      jobName,
-      processor as JobProcessor<Record<string, unknown>, unknown>
-    );
+    this.processors.set(jobName, processor as JobProcessor<Record<string, unknown>, unknown>);
 
     if (this.workers.length === 0) {
       const concurrency = this.config.worker?.concurrency ?? 5;
