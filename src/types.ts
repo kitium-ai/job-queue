@@ -32,6 +32,8 @@ export enum JobResult {
 export interface JobOptions {
   /** Maximum number of attempts */
   attempts?: number;
+  /** Unique key to deduplicate jobs (mapped to BullMQ jobId) */
+  idempotencyKey?: string;
   /** Delay in milliseconds before job execution */
   delay?: number;
   /** Priority of the job (higher values = higher priority) */
@@ -48,6 +50,8 @@ export interface JobOptions {
   metadata?: Record<string, unknown>;
   /** Whether to repeat the job (cron/interval) */
   repeat?: RepeatConfig;
+  /** Optional jitter (milliseconds) to avoid thundering herds */
+  jitter?: number;
 }
 
 /**
@@ -134,8 +138,13 @@ export interface QueueConfig {
     host?: string;
     port?: number;
     password?: string;
+    username?: string;
     db?: number;
     retryStrategy?: (times: number) => number;
+    tls?: Record<string, unknown>;
+    enableReadyCheck?: boolean;
+    maxRetriesPerRequest?: number | null;
+    connectTimeout?: number;
   };
   defaultJobOptions?: JobOptions;
   retry?: RetryConfig;
@@ -146,7 +155,16 @@ export interface QueueConfig {
     lockDuration?: number;
     lockRenewTime?: number;
   };
-}
+  worker?: {
+    concurrency?: number;
+    limiter?: {
+      max: number;
+      duration: number;
+    };
+  };
+  telemetry?: TelemetryAdapter;
+  metrics?: MetricsAdapter;
+};
 
 /**
  * Job processor callback type
@@ -185,4 +203,32 @@ export enum QueueEvent {
   JOB_PROGRESS = 'job-progress',
   JOB_DLQ = 'job-dlq',
   QUEUE_ERROR = 'queue-error',
+}
+
+/**
+ * Minimal telemetry interface to integrate with tracing providers
+ */
+export interface TelemetryAdapter {
+  startSpan: (
+    name: string,
+    attributes?: Record<string, string | number | boolean | undefined>
+  ) => SpanHandle;
+}
+
+export interface SpanHandle {
+  setAttribute: (key: string, value: string | number | boolean) => void;
+  recordException: (error: Error) => void;
+  end: () => void;
+}
+
+/**
+ * Metrics adapter interface for reporting queue metrics
+ */
+export interface MetricsAdapter {
+  increment: (name: string, value?: number, tags?: Record<string, string>) => void;
+  observe: (
+    name: string,
+    value: number,
+    tags?: Record<string, string>
+  ) => void;
 }

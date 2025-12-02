@@ -11,6 +11,8 @@ import {
   QueueEvent,
   JobEventHandler,
   DLQJobInfo,
+  TelemetryAdapter,
+  MetricsAdapter,
 } from './types';
 
 /**
@@ -21,25 +23,32 @@ const logger = getLogger();
 
 export class JobQueue {
   private queue: Queue;
-  private worker: Worker | null = null;
+  private workers: Worker[] = [];
   private redis: InstanceType<typeof ioredis>;
   private dlqQueue: Queue | null = null;
   private config: QueueConfig;
   private eventHandlers: Map<QueueEvent, Set<JobEventHandler>> = new Map();
   private processors: Map<string, JobProcessor<Record<string, unknown>, unknown>> = new Map();
+  private telemetry?: TelemetryAdapter;
+  private metrics?: MetricsAdapter;
 
   constructor(config: QueueConfig) {
     this.config = config;
+    this.telemetry = config.telemetry;
+    this.metrics = config.metrics;
 
     // Initialize Redis connection with secure defaults
     this.redis = new ioredis({
       host: config.redis?.host || 'localhost',
       port: config.redis?.port || 6379,
       password: config.redis?.password,
+      username: config.redis?.username,
       db: config.redis?.db || 0,
       retryStrategy: config.redis?.retryStrategy || this.defaultRetryStrategy,
-      maxRetriesPerRequest: null,
-      enableReadyCheck: false,
+      maxRetriesPerRequest: config.redis?.maxRetriesPerRequest ?? 5,
+      enableReadyCheck: config.redis?.enableReadyCheck ?? true,
+      tls: config.redis?.tls,
+      connectTimeout: config.redis?.connectTimeout ?? 2000,
     });
 
     // Create main queue
@@ -130,22 +139,16 @@ export class JobQueue {
       processor as JobProcessor<Record<string, unknown>, unknown>
     );
 
-    // Create or update worker
-    if (this.worker) {
-      // Remove old worker
-      this.worker.close().catch((err) => {
-        logger.error('Error closing old worker', { error: err as Error });
+    if (this.workers.length === 0) {
+      const concurrency = this.config.worker?.concurrency ?? 5;
+      const worker = new Worker(this.config.name, this.createWorkerHandler(), {
+        connection: this.redis,
+        concurrency,
+        limiter: this.config.worker?.limiter,
       });
+      this.workers.push(worker);
+      this.setupWorkerEventListeners(worker);
     }
-
-    // Create new worker with all registered processors
-    this.worker = new Worker(this.config.name, this.createWorkerHandler(), {
-      connection: this.redis,
-      concurrency: 5,
-    });
-
-    // Setup worker event listeners
-    this.setupWorkerEventListeners();
   }
 
   /**
@@ -159,6 +162,12 @@ export class JobQueue {
       }
 
       this.emit(QueueEvent.JOB_STARTED, job);
+      this.metrics?.increment('jobqueue.job.started', 1, { name: job.name });
+      const span = this.telemetry?.startSpan('jobqueue.process', {
+        jobName: job.name,
+        queue: this.config.name,
+      });
+      const startTime = Date.now();
 
       try {
         const result = await processor({
@@ -174,6 +183,9 @@ export class JobQueue {
         });
 
         this.emit(QueueEvent.JOB_COMPLETED, job);
+        this.metrics?.increment('jobqueue.job.completed', 1, { name: job.name });
+        this.observeDuration(job, 'jobqueue.job.duration_ms', startTime);
+        span?.end();
         return result;
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
@@ -182,13 +194,17 @@ export class JobQueue {
         if (job.attemptsMade >= (job.opts.attempts || 3) && this.config.dlq?.enabled) {
           await this.moveJobToDLQ(job, err);
           this.emit(QueueEvent.JOB_DLQ, job, err);
+          this.metrics?.increment('jobqueue.job.dlq', 1, { name: job.name });
         } else {
           this.emit(QueueEvent.JOB_FAILED, job, err);
           if (job.attemptsMade < (job.opts.attempts || 3)) {
             this.emit(QueueEvent.JOB_RETRYING, job);
+            this.metrics?.increment('jobqueue.job.retrying', 1, { name: job.name });
           }
         }
-
+        span?.recordException(err);
+        span?.end();
+        this.observeDuration(job, 'jobqueue.job.duration_ms', startTime);
         throw err;
       }
     };
@@ -197,17 +213,14 @@ export class JobQueue {
   /**
    * Setup worker event listeners
    */
-  private setupWorkerEventListeners(): void {
-    if (!this.worker) {
-      return;
-    }
-
-    this.worker.on('stalled', (jobId: string) => {
+  private setupWorkerEventListeners(worker: Worker): void {
+    worker.on('stalled', (jobId: string) => {
       this.queue
         .getJob(jobId)
         .then((job) => {
           if (job) {
             this.emit(QueueEvent.JOB_STALLED, job);
+            this.metrics?.increment('jobqueue.job.stalled', 1, { name: job.name });
           }
         })
         .catch((err) => {
@@ -215,7 +228,7 @@ export class JobQueue {
         });
     });
 
-    this.worker.on('error', (error: Error) => {
+    worker.on('error', (error: Error) => {
       this.emit(QueueEvent.QUEUE_ERROR, null, error);
     });
   }
@@ -231,11 +244,18 @@ export class JobQueue {
     const jobOptions = {
       ...this.buildDefaultJobOptions(this.config.defaultJobOptions),
       ...options,
+      jobId: options?.idempotencyKey,
     };
+
+    const jitter = options?.jitter || 0;
+    if (jitter > 0) {
+      jobOptions.delay = (jobOptions.delay || 0) + Math.floor(Math.random() * jitter);
+    }
 
     const job = await this.queue.add(jobName, data, jobOptions);
 
     this.emit(QueueEvent.JOB_ADDED, job);
+    this.metrics?.increment('jobqueue.job.added', 1, { name: job.name });
 
     return job.id || '';
   }
@@ -255,12 +275,42 @@ export class JobQueue {
       repeat: {
         pattern: cronPattern,
       },
+      jobId: options?.idempotencyKey,
     };
 
     const job = await this.queue.add(jobName, data, jobOptions);
 
     this.emit(QueueEvent.JOB_ADDED, job);
 
+    return job.id || '';
+  }
+
+  /**
+   * Schedule a job on a fixed interval with optional jitter
+   */
+  public async scheduleEvery<T extends Record<string, unknown>>(
+    jobName: string,
+    data: T,
+    everyMs: number,
+    options?: JobOptions
+  ): Promise<string> {
+    const jobOptions = {
+      ...this.buildDefaultJobOptions(this.config.defaultJobOptions),
+      ...options,
+      repeat: {
+        every: everyMs,
+        immediately: options?.repeat?.immediately ?? true,
+      },
+      jobId: options?.idempotencyKey,
+    };
+
+    const jitter = options?.jitter || 0;
+    if (jitter > 0) {
+      jobOptions.delay = (jobOptions.delay || 0) + Math.floor(Math.random() * jitter);
+    }
+
+    const job = await this.queue.add(jobName, data, jobOptions);
+    this.emit(QueueEvent.JOB_ADDED, job);
     return job.id || '';
   }
 
@@ -315,6 +365,27 @@ export class JobQueue {
   }
 
   /**
+   * Replay DLQ jobs back to the main queue
+   */
+  public async replayDLQ(limit: number = 100): Promise<number> {
+    if (!this.dlqQueue) {
+      return 0;
+    }
+
+    const jobs = await this.dlqQueue.getJobs(['waiting'], 0, limit - 1);
+    let moved = 0;
+    for (const job of jobs) {
+      await this.queue.add(job.name, job.data, {
+        ...this.buildDefaultJobOptions(this.config.defaultJobOptions),
+        jobId: job.id as string,
+      });
+      await job.remove();
+      moved += 1;
+    }
+    return moved;
+  }
+
+  /**
    * Get job status
    */
   public async getJobStatus(jobId: string): Promise<JobStatusInfo> {
@@ -343,6 +414,7 @@ export class JobQueue {
       createdAt: job.timestamp,
       processedAt: job.processedOn,
       completedAt: job.finishedOn,
+      failedAt: job.failedReason ? job.finishedOn : undefined,
     };
   }
 
@@ -436,10 +508,44 @@ export class JobQueue {
   }
 
   /**
+   * Bulk retry jobs in a given status
+   */
+  public async bulkRetry(status: JobStatus, limit: number = 100): Promise<number> {
+    const jobs = await this.getJobsByStatus(status, limit);
+    let retried = 0;
+    for (const job of jobs) {
+      await this.retryJob(job.id);
+      retried += 1;
+    }
+    return retried;
+  }
+
+  /**
    * Clear the entire queue
    */
   public async clear(): Promise<void> {
     await this.queue.clean(0, 10000);
+  }
+
+  /**
+   * Pause processing for the queue
+   */
+  public async pause(): Promise<void> {
+    await this.queue.pause();
+  }
+
+  /**
+   * Resume processing for the queue
+   */
+  public async resume(): Promise<void> {
+    await this.queue.resume();
+  }
+
+  /**
+   * Drain queue and stop accepting new jobs
+   */
+  public async drain(): Promise<void> {
+    await this.queue.drain();
   }
 
   /**
@@ -476,6 +582,18 @@ export class JobQueue {
   }
 
   /**
+   * Record timing metrics for job execution
+   */
+  private observeDuration(job: BullJob, metricName: string, startTime: number): void {
+    if (!this.metrics) {
+      return;
+    }
+
+    const duration = Date.now() - startTime;
+    this.metrics.observe(metricName, duration, { name: job.name });
+  }
+
+  /**
    * Get queue statistics
    */
   public async getStats(): Promise<{
@@ -485,6 +603,7 @@ export class JobQueue {
     delayed: number;
     waiting: number;
     paused: number;
+    latencyMs: number;
   }> {
     const [active, completed, failed, delayed, waiting, isPaused] = await Promise.all([
       this.queue.getActiveCount(),
@@ -496,16 +615,28 @@ export class JobQueue {
     ]);
 
     const paused = isPaused ? 1 : 0;
-    return { active, completed, failed, delayed, waiting, paused };
+    const totalPending = waiting + active;
+    return { active, completed, failed, delayed, waiting, paused, latencyMs: totalPending };
+  }
+
+  /**
+   * Simple health check to validate Redis connectivity
+   */
+  public async healthCheck(): Promise<boolean> {
+    try {
+      await this.redis.ping();
+      return true;
+    } catch (error) {
+      logger.error('Health check failed', { error });
+      return false;
+    }
   }
 
   /**
    * Close the queue and cleanup resources
    */
   public async close(): Promise<void> {
-    if (this.worker) {
-      await this.worker.close();
-    }
+    await Promise.all(this.workers.map((worker) => worker.close()));
     if (this.dlqQueue) {
       await this.dlqQueue.close();
     }
