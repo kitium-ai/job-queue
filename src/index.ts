@@ -11,21 +11,23 @@
  */
 
 export { JobQueue } from './JobQueue';
-export {
-  JobStatus,
-  JobResult,
-  JobOptions,
+export type {
   BackoffConfig,
-  RepeatConfig,
-  JobData,
-  JobExecutionResult,
-  JobStatusInfo,
-  RetryConfig,
   DLQConfig,
-  QueueConfig,
-  JobProcessor,
+  JobData,
   JobEventHandler,
-  QueueEvent,
-  TelemetryAdapter,
+  JobExecutionResult,
+  JobOptions,
+  JobProcessor,
+  JobStatusInfo,
   MetricsAdapter,
+  QueueConfig,
+  RepeatConfig,
+  RetryConfig,
+  TelemetryAdapter,
+} from './types';
+export {
+  JobResult,
+  JobStatus,
+  QueueEvent,
 } from './types';

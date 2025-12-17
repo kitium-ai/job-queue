@@ -43,6 +43,9 @@ vi.mock('bullmq', () => {
     async updateProgress(n: number) {
       this.#progress = n;
     }
+    async getState() {
+      return 'waiting';
+    }
     async remove() {
       // removal will be handled by Queue.removeJob consuming this
     }
@@ -69,7 +72,9 @@ vi.mock('bullmq', () => {
         timestamp: job.timestamp,
         processedOn: undefined,
         finishedOn: undefined,
+        getState: () => job.getState(),
         progress: () => job.progressValue(),
+        updateProgress: (n: number) => job.updateProgress(n),
       };
     }
     async getJob(id: string) {
@@ -85,9 +90,11 @@ vi.mock('bullmq', () => {
         processedOn: job.processedOn,
         finishedOn: job.finishedOn,
         failedReason: job.failedReason,
+        getState: () => job.getState(),
         progress: () => job.progressValue(),
         moveToWaiting: () => job.moveToWaiting(),
         moveToWait: () => job.moveToWait(),
+        updateProgress: (n: number) => job.updateProgress(n),
         remove: async () => {
           this.store.delete(id);
         },
@@ -104,7 +111,9 @@ vi.mock('bullmq', () => {
         timestamp: job.timestamp,
         processedOn: job.processedOn,
         finishedOn: job.finishedOn,
+        getState: () => job.getState(),
         progress: () => job.progressValue(),
+        updateProgress: (n: number) => job.updateProgress(n),
       }));
     }
     async getActiveCount() {
@@ -161,15 +170,44 @@ vi.mock('bullmq', () => {
   };
 });
 
-// Mock error package to avoid workspace resolution issues during tests
-vi.mock('@kitiumai/error', () => ({
-  KitiumError: class KitiumError extends Error {
-    constructor(shape: any) {
-      super(shape?.message ?? 'KitiumError');
-      this.name = 'KitiumError';
+vi.mock('ioredis', () => ({
+  default: class MockRedis {
+    constructor(_options: unknown) {}
+    async ping() {
+      return 'PONG';
+    }
+    async quit() {
+      // no-op
     }
   },
 }));
+
+vi.mock('@kitiumai/logger', () => {
+  const logger = {
+    child: () => logger,
+    error: () => undefined,
+    info: () => undefined,
+    warn: () => undefined,
+    debug: () => undefined,
+  };
+  return { getLogger: () => logger };
+});
+
+vi.mock('@kitiumai/error', () => ({
+  NotFoundError: class NotFoundError extends Error {
+    constructor(shape: any) {
+      super(shape?.message ?? 'NotFoundError');
+      this.name = 'NotFoundError';
+    }
+  },
+  ValidationError: class ValidationError extends Error {
+    constructor(shape: any) {
+      super(shape?.message ?? 'ValidationError');
+      this.name = 'ValidationError';
+    }
+  },
+}));
+
 import { JobQueue, QueueEvent, JobStatus } from '../src/index';
 
 // Mock Redis for testing

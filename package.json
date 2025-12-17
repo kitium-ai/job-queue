@@ -49,21 +49,22 @@
     "release": "pnpm version && pnpm install --lockfile-only"
   },
   "dependencies": {
+    "@kitiumai/error": "^3.0.0",
+    "@kitiumai/logger": "^3.0.1",
+    "@kitiumai/types": "^3.0.0",
+    "@kitiumai/utils-ts": "^3.0.0",
     "bullmq": "^5.0.0",
-    "ioredis": "^5.3.0",
-    "@kitiumai/logger": "^2.0.1",
-    "@kitiumai/types": "^2.0.1",
-    "@kitiumai/error": "^2.0.1",
-    "@kitiumai/utils-ts": "^2.0.2"
+    "ioredis": "^5.3.0"
   },
   "devDependencies": {
-    "@kitiumai/vitest-helpers": "^2.0.1",
-    "@kitiumai/config": "^2.0.1",
-    "@kitiumai/lint": "^2.0.1",
-    "@kitiumai/scripts": "^1.0.0",
+    "@kitiumai/config": "^3.1.4",
+    "@kitiumai/lint": "^3.0.1",
+    "@kitiumai/scripts": "^2.0.0",
+    "@kitiumai/vitest-helpers": "^3.0.0",
     "@types/node": "^24.10.1",
-    "vitest": "^2.1.9",
-    "typescript": "^5.6.0"
+    "husky": "^9.1.7",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.8"
   },
   "keywords": [
     "job-queue",

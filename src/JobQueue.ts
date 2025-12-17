@@ -1,55 +1,50 @@
-import { Queue, Worker, Job as BullJob, type JobsOptions } from 'bullmq';
+import { NotFoundError, ValidationError } from '@kitiumai/error';
+import { getLogger, type IAdvancedLogger } from '@kitiumai/logger';
+import { type Job as BullJob, type JobsOptions, Queue, Worker } from 'bullmq';
 import ioredis from 'ioredis';
-import { getLogger } from '@kitiumai/logger';
-import { KitiumError } from '@kitiumai/error';
+
 import {
-  QueueConfig,
-  JobOptions,
-  JobProcessor,
+  type DLQJobInfo,
+  type JobEventHandler,
+  type JobOptions,
+  type JobProcessor,
   JobStatus,
-  JobStatusInfo,
+  type JobStatusInfo,
+  type MetricsAdapter,
+  type QueueConfig,
   QueueEvent,
-  JobEventHandler,
-  DLQJobInfo,
-  TelemetryAdapter,
-  MetricsAdapter,
+  type TelemetryAdapter,
 } from './types';
 
 /**
  * Enterprise-ready job queue implementation using BullMQ
  * Handles job scheduling, retries, status tracking, and dead letter queues
  */
-const logger = getLogger();
+const baseLogger = getLogger();
+const logger: ReturnType<typeof getLogger> =
+  'child' in baseLogger && typeof baseLogger.child === 'function'
+    ? (baseLogger as IAdvancedLogger).child({ component: 'job-queue' })
+    : baseLogger;
+
+const SOURCE = '@kitiumai/job-queue';
 
 export class JobQueue {
-  private queue: Queue;
-  private workers: Worker[] = [];
-  private redis: InstanceType<typeof ioredis>;
+  private readonly queue: Queue;
+  private readonly workers: Worker[] = [];
+  private readonly redis: InstanceType<typeof ioredis>;
   private dlqQueue: Queue | null = null;
-  private config: QueueConfig;
-  private eventHandlers: Map<QueueEvent, Set<JobEventHandler>> = new Map();
-  private processors: Map<string, JobProcessor<Record<string, unknown>, unknown>> = new Map();
-  private telemetry?: TelemetryAdapter;
-  private metrics?: MetricsAdapter;
+  private readonly config: QueueConfig;
+  private readonly eventHandlers: Map<QueueEvent, Set<JobEventHandler>> = new Map();
+  private readonly processors: Map<string, JobProcessor<Record<string, unknown>, unknown>> = new Map();
+  private readonly telemetry: TelemetryAdapter | undefined;
+  private readonly metrics: MetricsAdapter | undefined;
 
   constructor(config: QueueConfig) {
     this.config = config;
     this.telemetry = config.telemetry;
     this.metrics = config.metrics;
 
-    // Initialize Redis connection with secure defaults
-    this.redis = new ioredis({
-      host: config.redis?.host || 'localhost',
-      port: config.redis?.port || 6379,
-      password: config.redis?.password,
-      username: config.redis?.username,
-      db: config.redis?.db || 0,
-      retryStrategy: config.redis?.retryStrategy || this.defaultRetryStrategy,
-      maxRetriesPerRequest: config.redis?.maxRetriesPerRequest ?? 5,
-      enableReadyCheck: config.redis?.enableReadyCheck ?? true,
-      tls: config.redis?.tls,
-      connectTimeout: config.redis?.connectTimeout ?? 2000,
-    });
+    this.redis = this.createRedisConnection(config);
 
     // Create main queue
     this.queue = new Queue(config.name, {
@@ -58,7 +53,7 @@ export class JobQueue {
     });
 
     // Initialize DLQ if enabled
-    if (config.dlq?.enabled) {
+    if (config.dlq?.enabled === true) {
       this.initializeDLQ();
     }
 
@@ -66,10 +61,26 @@ export class JobQueue {
     this.setupQueueEventListeners();
   }
 
+  private createRedisConnection(config: QueueConfig): InstanceType<typeof ioredis> {
+    const redisConfig = config.redis ?? {};
+    return new ioredis({
+      host: redisConfig.host ?? 'localhost',
+      port: redisConfig.port ?? 6379,
+      password: redisConfig.password,
+      username: redisConfig.username,
+      db: redisConfig.db ?? 0,
+      retryStrategy: redisConfig.retryStrategy ?? this.defaultRetryStrategy,
+      maxRetriesPerRequest: redisConfig.maxRetriesPerRequest ?? 5,
+      enableReadyCheck: redisConfig.enableReadyCheck ?? true,
+      tls: redisConfig.tls,
+      connectTimeout: redisConfig.connectTimeout ?? 2000,
+    });
+  }
+
   /**
    * Default retry strategy for Redis connection
    */
-  private defaultRetryStrategy = (times: number): number => {
+  private readonly defaultRetryStrategy = (times: number): number => {
     const delay = Math.min(times * 50, 2000);
     return delay;
   };
@@ -77,27 +88,47 @@ export class JobQueue {
   /**
    * Build default job options from configuration
    */
-  private buildDefaultJobOptions(options?: JobOptions): JobsOptions {
+  private buildDefaultJobOptions(options: JobOptions = {}): JobsOptions {
+    const removeOnComplete = options.removeOnComplete ?? true;
+    const shouldRemoveOnFail = options.removeOnFail ?? false;
+
     return {
-      attempts: options?.attempts || 3,
-      delay: options?.delay || 0,
-      priority: options?.priority || 0,
-      removeOnComplete: options?.removeOnComplete !== false,
-      removeOnFail: options?.removeOnFail === true,
-      backoff: options?.backoff || {
+      attempts: options.attempts ?? 3,
+      delay: options.delay ?? 0,
+      priority: options.priority ?? 0,
+      backoff: options.backoff ?? {
         type: 'exponential' as const,
         delay: 1000,
       },
-      timeout: options?.timeout || 30000,
+      timeout: options.timeout ?? 30000,
       ...options,
+      removeOnComplete,
+      removeOnFail: shouldRemoveOnFail,
     };
+  }
+
+  private buildJobOptions(options?: JobOptions): JobsOptions {
+    const baseOptions = this.buildDefaultJobOptions(this.config.defaultJobOptions);
+    const jobOptions: JobsOptions = { ...baseOptions, ...(options ?? {}) };
+    if (options?.idempotencyKey) {
+      jobOptions.jobId = options.idempotencyKey;
+    }
+    return jobOptions;
+  }
+
+  private applyJitter(jobOptions: JobsOptions, jitterMs: number | undefined): void {
+    const jitter = jitterMs ?? 0;
+    if (jitter <= 0) {
+      return;
+    }
+    jobOptions.delay = (jobOptions.delay ?? 0) + Math.floor(Math.random() * jitter);
   }
 
   /**
    * Initialize Dead Letter Queue
    */
   private initializeDLQ(): void {
-    const dlqName = this.config.dlq?.queueName || `${this.config.name}-dlq`;
+    const dlqName = this.config.dlq?.queueName ?? `${this.config.name}-dlq`;
     this.dlqQueue = new Queue(dlqName, {
       connection: this.redis,
       defaultJobOptions: {
@@ -124,13 +155,13 @@ export class JobQueue {
     processor: JobProcessor<T>
   ): void {
     if (this.processors.has(jobName)) {
-      throw new KitiumError({
+      throw new ValidationError({
         code: 'queue/processor_exists',
         message: `Processor for job "${jobName}" already registered`,
         severity: 'error',
-        kind: 'business',
+        kind: 'validation',
         retryable: false,
-        source: '@kitiumai/job-queue',
+        source: SOURCE,
       });
     }
 
@@ -138,11 +169,14 @@ export class JobQueue {
 
     if (this.workers.length === 0) {
       const concurrency = this.config.worker?.concurrency ?? 5;
-      const worker = new Worker(this.config.name, this.createWorkerHandler(), {
+      const workerOptions: { connection: InstanceType<typeof ioredis>; concurrency: number; limiter?: { max: number; duration: number } } = {
         connection: this.redis,
         concurrency,
-        limiter: this.config.worker?.limiter,
-      });
+      };
+      if (this.config.worker?.limiter !== undefined) {
+        workerOptions.limiter = this.config.worker.limiter;
+      }
+      const worker = new Worker(this.config.name, this.createWorkerHandler(), workerOptions);
       this.workers.push(worker);
       this.setupWorkerEventListeners(worker);
     }
@@ -152,59 +186,85 @@ export class JobQueue {
    * Create worker handler that processes all registered jobs
    */
   private createWorkerHandler(): (job: BullJob) => Promise<unknown> {
-    return async (job: BullJob) => {
-      const processor = this.processors.get(job.name);
-      if (!processor) {
-        throw new Error(`No processor registered for job: ${job.name}`);
-      }
+    return (job: BullJob) => this.processJob(job);
+  }
 
-      this.emit(QueueEvent.JOB_STARTED, job);
-      this.metrics?.increment('jobqueue.job.started', 1, { name: job.name });
-      const span = this.telemetry?.startSpan('jobqueue.process', {
-        jobName: job.name,
-        queue: this.config.name,
+  private async processJob(job: BullJob): Promise<unknown> {
+    const processor = this.processors.get(job.name);
+    if (!processor) {
+      throw new ValidationError({
+        code: 'queue/processor_not_found',
+        message: `No processor registered for job: ${job.name}`,
+        severity: 'error',
+        kind: 'validation',
+        retryable: false,
+        source: SOURCE,
       });
-      const startTime = Date.now();
+    }
 
-      try {
-        const result = await processor({
-          id: job.id || '',
-          name: job.name,
-          data: job.data,
-          attempts: job.attemptsMade,
-          progress: (percentage: number) => {
-            // BullMQ v5 uses updateProgress instead of callable progress
-            void job.updateProgress(percentage);
-            this.emit(QueueEvent.JOB_PROGRESS, job);
-          },
-        });
+    this.emit(QueueEvent.JOB_STARTED, job);
+    this.metrics?.increment('jobqueue.job.started', 1, { name: job.name });
 
-        this.emit(QueueEvent.JOB_COMPLETED, job);
-        this.metrics?.increment('jobqueue.job.completed', 1, { name: job.name });
-        this.observeDuration(job, 'jobqueue.job.duration_ms', startTime);
-        span?.end();
-        return result;
-      } catch (error) {
-        const err = error instanceof Error ? error : new Error(String(error));
+    const span = this.telemetry?.startSpan('jobqueue.process', {
+      jobName: job.name,
+      queue: this.config.name,
+    });
+    const startTime = Date.now();
 
-        // Check if we should move to DLQ
-        if (job.attemptsMade >= (job.opts.attempts || 3) && this.config.dlq?.enabled) {
-          await this.moveJobToDLQ(job, err);
-          this.emit(QueueEvent.JOB_DLQ, job, err);
-          this.metrics?.increment('jobqueue.job.dlq', 1, { name: job.name });
-        } else {
-          this.emit(QueueEvent.JOB_FAILED, job, err);
-          if (job.attemptsMade < (job.opts.attempts || 3)) {
-            this.emit(QueueEvent.JOB_RETRYING, job);
-            this.metrics?.increment('jobqueue.job.retrying', 1, { name: job.name });
-          }
-        }
-        span?.recordException(err);
-        span?.end();
-        this.observeDuration(job, 'jobqueue.job.duration_ms', startTime);
-        throw err;
+    try {
+      const result = await processor({
+        id: job.id?.toString() ?? '',
+        name: job.name,
+        data: job.data,
+        attempts: job.attemptsMade,
+        progress: (percentage: number) => {
+          void job.updateProgress(percentage);
+          this.emit(QueueEvent.JOB_PROGRESS, job);
+        },
+      });
+
+      this.emit(QueueEvent.JOB_COMPLETED, job);
+      this.metrics?.increment('jobqueue.job.completed', 1, { name: job.name });
+      this.observeDuration(job, 'jobqueue.job.duration_ms', startTime);
+      span?.end();
+      return result;
+    } catch (error) {
+      const error_ = error instanceof Error ? error : new Error(String(error));
+      await this.handleJobFailure(job, error_, startTime, span);
+      throw error_;
+    }
+  }
+
+  private async handleJobFailure(
+    job: BullJob,
+    error: Error,
+    startTime: number,
+    span: ReturnType<TelemetryAdapter['startSpan']> | undefined
+  ): Promise<void> {
+    const maxAttempts = job.opts.attempts ?? 3;
+    const isDlqEnabled = this.config.dlq?.enabled === true;
+
+    if (isDlqEnabled) {
+      if (job.attemptsMade >= maxAttempts) {
+        await this.moveJobToDLQ(job, error);
+        this.emit(QueueEvent.JOB_DLQ, job, error);
+        this.metrics?.increment('jobqueue.job.dlq', 1, { name: job.name });
+      } else {
+        this.emit(QueueEvent.JOB_FAILED, job, error);
+        this.emit(QueueEvent.JOB_RETRYING, job);
+        this.metrics?.increment('jobqueue.job.retrying', 1, { name: job.name });
       }
-    };
+    } else {
+      this.emit(QueueEvent.JOB_FAILED, job, error);
+      if (job.attemptsMade < maxAttempts) {
+        this.emit(QueueEvent.JOB_RETRYING, job);
+        this.metrics?.increment('jobqueue.job.retrying', 1, { name: job.name });
+      }
+    }
+
+    span?.recordException(error);
+    span?.end();
+    this.observeDuration(job, 'jobqueue.job.duration_ms', startTime);
   }
 
   /**
@@ -212,22 +272,25 @@ export class JobQueue {
    */
   private setupWorkerEventListeners(worker: Worker): void {
     worker.on('stalled', (jobId: string) => {
-      this.queue
-        .getJob(jobId)
-        .then((job) => {
-          if (job) {
-            this.emit(QueueEvent.JOB_STALLED, job);
-            this.metrics?.increment('jobqueue.job.stalled', 1, { name: job.name });
-          }
-        })
-        .catch((err) => {
-          logger.error('Error getting stalled job', { error: err });
-        });
+      void this.handleWorkerStalled(jobId);
     });
 
     worker.on('error', (error: Error) => {
       this.emit(QueueEvent.QUEUE_ERROR, null, error);
     });
+  }
+
+  private async handleWorkerStalled(jobId: string): Promise<void> {
+    try {
+      const job = await this.queue.getJob(jobId);
+      if (!job) {
+        return;
+      }
+      this.emit(QueueEvent.JOB_STALLED, job);
+      this.metrics?.increment('jobqueue.job.stalled', 1, { name: job.name });
+    } catch (error) {
+      logger.error('Error getting stalled job', undefined, error instanceof Error ? error : undefined);
+    }
   }
 
   /**
@@ -238,23 +301,15 @@ export class JobQueue {
     data: T,
     options?: JobOptions
   ): Promise<string> {
-    const jobOptions = {
-      ...this.buildDefaultJobOptions(this.config.defaultJobOptions),
-      ...options,
-      jobId: options?.idempotencyKey,
-    };
-
-    const jitter = options?.jitter || 0;
-    if (jitter > 0) {
-      jobOptions.delay = (jobOptions.delay || 0) + Math.floor(Math.random() * jitter);
-    }
+    const jobOptions = this.buildJobOptions(options);
+    this.applyJitter(jobOptions, options?.jitter);
 
     const job = await this.queue.add(jobName, data, jobOptions);
 
     this.emit(QueueEvent.JOB_ADDED, job);
     this.metrics?.increment('jobqueue.job.added', 1, { name: job.name });
 
-    return job.id || '';
+    return job.id?.toString() ?? '';
   }
 
   /**
@@ -266,20 +321,14 @@ export class JobQueue {
     cronPattern: string,
     options?: JobOptions
   ): Promise<string> {
-    const jobOptions = {
-      ...this.buildDefaultJobOptions(this.config.defaultJobOptions),
-      ...options,
-      repeat: {
-        pattern: cronPattern,
-      },
-      jobId: options?.idempotencyKey,
-    };
+    const jobOptions = this.buildJobOptions(options);
+    jobOptions.repeat = { pattern: cronPattern };
 
     const job = await this.queue.add(jobName, data, jobOptions);
 
     this.emit(QueueEvent.JOB_ADDED, job);
 
-    return job.id || '';
+    return job.id?.toString() ?? '';
   }
 
   /**
@@ -291,24 +340,16 @@ export class JobQueue {
     everyMs: number,
     options?: JobOptions
   ): Promise<string> {
-    const jobOptions = {
-      ...this.buildDefaultJobOptions(this.config.defaultJobOptions),
-      ...options,
-      repeat: {
-        every: everyMs,
-        immediately: options?.repeat?.immediately ?? true,
-      },
-      jobId: options?.idempotencyKey,
+    const jobOptions = this.buildJobOptions(options);
+    jobOptions.repeat = {
+      every: everyMs,
+      immediately: options?.repeat?.immediately ?? true,
     };
-
-    const jitter = options?.jitter || 0;
-    if (jitter > 0) {
-      jobOptions.delay = (jobOptions.delay || 0) + Math.floor(Math.random() * jitter);
-    }
+    this.applyJitter(jobOptions, options?.jitter);
 
     const job = await this.queue.add(jobName, data, jobOptions);
     this.emit(QueueEvent.JOB_ADDED, job);
-    return job.id || '';
+    return job.id?.toString() ?? '';
   }
 
   /**
@@ -317,7 +358,14 @@ export class JobQueue {
   public async retryJob(jobId: string): Promise<void> {
     const job = await this.queue.getJob(jobId);
     if (!job) {
-      throw new Error(`Job ${jobId} not found`);
+      throw new NotFoundError({
+        code: 'queue/job_not_found',
+        message: `Job ${jobId} not found`,
+        severity: 'error',
+        kind: 'not_found',
+        retryable: false,
+        source: SOURCE,
+      });
     }
 
     // BullMQ v5 method name changed
@@ -355,8 +403,8 @@ export class JobQueue {
     if (this.config.dlq?.notificationHandler) {
       try {
         await this.config.dlq.notificationHandler(dlqJob);
-      } catch (err) {
-        logger.error('Error in DLQ notification handler', { error: err as Error });
+      } catch (error_) {
+        logger.error('Error in DLQ notification handler', undefined, error_ instanceof Error ? error_ : undefined);
       }
     }
   }
@@ -364,7 +412,7 @@ export class JobQueue {
   /**
    * Replay DLQ jobs back to the main queue
    */
-  public async replayDLQ(limit: number = 100): Promise<number> {
+  public async replayDLQ(limit = 100): Promise<number> {
     if (!this.dlqQueue) {
       return 0;
     }
@@ -388,98 +436,170 @@ export class JobQueue {
   public async getJobStatus(jobId: string): Promise<JobStatusInfo> {
     const job = await this.queue.getJob(jobId);
     if (!job) {
-      throw new KitiumError({
-        code: 'queue/not_found',
+      throw new NotFoundError({
+        code: 'queue/job_not_found',
         message: `Job ${jobId} not found`,
         severity: 'error',
         kind: 'not_found',
         retryable: false,
-        source: '@kitiumai/job-queue',
+        source: SOURCE,
       });
     }
 
     const status = await this.getJobState(job);
 
-    return {
-      id: job.id || '',
+    const statusInfo: JobStatusInfo = {
+      id: job.id?.toString() ?? '',
       name: job.name,
       status,
       progress: typeof job.progress === 'number' ? job.progress : 0,
       data: job.data,
       attempts: job.attemptsMade,
-      maxAttempts: job.opts.attempts || 3,
+      maxAttempts: job.opts.attempts ?? 3,
       createdAt: job.timestamp,
-      processedAt: job.processedOn,
-      completedAt: job.finishedOn,
-      failedAt: job.failedReason ? job.finishedOn : undefined,
     };
+    if (job.processedOn !== undefined) {
+      statusInfo.processedAt = job.processedOn;
+    }
+    if (job.finishedOn !== undefined) {
+      statusInfo.completedAt = job.finishedOn;
+      if (job.failedReason) {
+        statusInfo.failedAt = job.finishedOn;
+      }
+    }
+    return statusInfo;
   }
 
   /**
    * Get job state
    */
   private async getJobState(job: BullJob): Promise<JobStatus> {
-    if (job.finishedOn) {
-      return job.failedReason ? JobStatus.FAILED : JobStatus.COMPLETED;
+    const state = await job.getState();
+    const stateString = String(state);
+    switch (stateString) {
+      case 'completed':
+        return JobStatus.COMPLETED;
+      case 'failed':
+        return JobStatus.FAILED;
+      case 'active':
+        return JobStatus.ACTIVE;
+      case 'delayed':
+        return JobStatus.DELAYED;
+      case 'paused':
+        return JobStatus.PAUSED;
+      case 'prioritized':
+      case 'waiting-children':
+      case 'waiting':
+      case 'wait':
+        return JobStatus.WAITING;
+      case 'unknown':
+        return JobStatus.PENDING;
+      default:
+        return JobStatus.PENDING;
     }
-    if (job.processedOn) {
-      return JobStatus.ACTIVE;
-    }
-    if (job.delay && job.delay > 0) {
-      return JobStatus.DELAYED;
-    }
-    return JobStatus.WAITING;
   }
 
   /**
    * Get all jobs with a specific status
    */
-  public async getJobsByStatus(status: JobStatus, limit: number = 100): Promise<JobStatusInfo[]> {
-    let jobs: BullJob[] = [];
-
-    switch (status) {
-      case JobStatus.ACTIVE:
-        jobs =
-          (await this.queue.getActiveCount()) > 0
-            ? await this.queue.getJobs(['active'], 0, limit - 1)
-            : [];
-        break;
-      case JobStatus.COMPLETED:
-        jobs = await this.queue.getJobs(['completed'], 0, limit - 1);
-        break;
-      case JobStatus.FAILED:
-        jobs = await this.queue.getJobs(['failed'], 0, limit - 1);
-        break;
-      case JobStatus.DELAYED:
-        jobs = await this.queue.getJobs(['delayed'], 0, limit - 1);
-        break;
-      case JobStatus.WAITING:
-        jobs = await this.queue.getJobs(['waiting'], 0, limit - 1);
-        break;
-      default:
-        return [];
+  public async getJobsByStatus(status: JobStatus, limit = 100): Promise<JobStatusInfo[]> {
+    if (status === JobStatus.DLQ) {
+      return this.getDLQStatusInfos(limit);
     }
 
-    return Promise.all(
-      jobs.map(async (job) => ({
-        id: job.id || '',
+    const bullmqStatuses = this.getBullmqStatusesForJobStatus(status);
+    const jobs = (await this.queue.getJobs(bullmqStatuses, 0, limit - 1)) as BullJob[];
+    return this.toJobStatusInfos(jobs);
+  }
+
+  private getBullmqStatusesForJobStatus(status: Exclude<JobStatus, JobStatus.DLQ>): string[] {
+    switch (status) {
+      case JobStatus.ACTIVE:
+        return ['active'];
+      case JobStatus.COMPLETED:
+        return ['completed'];
+      case JobStatus.FAILED:
+        return ['failed'];
+      case JobStatus.DELAYED:
+        return ['delayed'];
+      case JobStatus.PAUSED:
+        return ['paused'];
+      case JobStatus.PENDING:
+      case JobStatus.WAITING:
+        return ['waiting', 'wait', 'prioritized'];
+      default:
+        return this.assertNever(status);
+    }
+  }
+
+  private toJobStatusInfos(jobs: BullJob[]): Promise<JobStatusInfo[]> {
+    return Promise.all(jobs.map((job) => this.toJobStatusInfo(job)));
+  }
+
+  private async toJobStatusInfo(job: BullJob): Promise<JobStatusInfo> {
+    const statusInfo: JobStatusInfo = {
+      id: job.id?.toString() ?? '',
+      name: job.name,
+      status: await this.getJobState(job),
+      progress: typeof job.progress === 'number' ? job.progress : 0,
+      data: job.data,
+      attempts: job.attemptsMade,
+      maxAttempts: job.opts.attempts ?? 3,
+      createdAt: job.timestamp,
+    };
+
+    if (job.processedOn !== undefined) {
+      statusInfo.processedAt = job.processedOn;
+    }
+    if (job.finishedOn !== undefined) {
+      statusInfo.completedAt = job.finishedOn;
+    }
+
+    return statusInfo;
+  }
+
+  private assertNever(value: never): never {
+    throw new ValidationError({
+      code: 'queue/unhandled_status',
+      message: `Unhandled JobStatus: ${String(value)}`,
+      severity: 'error',
+      kind: 'validation',
+      retryable: false,
+      source: SOURCE,
+    });
+  }
+
+  private async getDLQStatusInfos(limit: number): Promise<JobStatusInfo[]> {
+    if (!this.dlqQueue) {
+      return [];
+    }
+
+    const jobs = await this.dlqQueue.getJobs(['waiting'], 0, limit - 1);
+    return jobs.map((job) => {
+      const statusInfo: JobStatusInfo = {
+        id: job.id?.toString() ?? '',
         name: job.name,
-        status: await this.getJobState(job),
+        status: JobStatus.DLQ,
         progress: typeof job.progress === 'number' ? job.progress : 0,
         data: job.data,
         attempts: job.attemptsMade,
-        maxAttempts: job.opts.attempts || 3,
+        maxAttempts: job.opts.attempts ?? 3,
         createdAt: job.timestamp,
-        processedAt: job.processedOn,
-        completedAt: job.finishedOn,
-      }))
-    );
+      };
+      if (job.processedOn !== undefined) {
+        statusInfo.processedAt = job.processedOn;
+      }
+      if (job.finishedOn !== undefined) {
+        statusInfo.completedAt = job.finishedOn;
+      }
+      return statusInfo;
+    });
   }
 
   /**
    * Get Dead Letter Queue jobs
    */
-  public async getDLQJobs(limit: number = 100): Promise<DLQJobInfo[]> {
+  public async getDLQJobs(limit = 100): Promise<DLQJobInfo[]> {
     if (!this.dlqQueue) {
       return [];
     }
@@ -507,7 +627,7 @@ export class JobQueue {
   /**
    * Bulk retry jobs in a given status
    */
-  public async bulkRetry(status: JobStatus, limit: number = 100): Promise<number> {
+  public async bulkRetry(status: JobStatus, limit = 100): Promise<number> {
     const jobs = await this.getJobsByStatus(status, limit);
     let retried = 0;
     for (const job of jobs) {
@@ -549,10 +669,12 @@ export class JobQueue {
    * Register event handler
    */
   public on(event: QueueEvent, handler: JobEventHandler): void {
-    if (!this.eventHandlers.has(event)) {
-      this.eventHandlers.set(event, new Set());
+    let handlers = this.eventHandlers.get(event);
+    if (!handlers) {
+      handlers = new Set();
+      this.eventHandlers.set(event, handlers);
     }
-    this.eventHandlers.get(event)!.add(handler);
+    handlers.add(handler);
   }
 
   /**
@@ -565,16 +687,13 @@ export class JobQueue {
     }
 
     handlers.forEach((handler) => {
-      try {
-        const result = handler(job, error);
-        if (result instanceof Promise) {
-          result.catch((err) => {
-            logger.error(`Error in ${event} handler`, { error: err });
-          });
+      void (async () => {
+        try {
+          await handler(job, error);
+        } catch (error_) {
+          logger.error(`Error in ${event} handler`, undefined, error_ instanceof Error ? error_ : undefined);
         }
-      } catch (err) {
-        logger.error(`Error in ${event} handler`, { error: err });
-      }
+      })();
     });
   }
 
@@ -624,7 +743,7 @@ export class JobQueue {
       await this.redis.ping();
       return true;
     } catch (error) {
-      logger.error('Health check failed', { error });
+      logger.error('Health check failed', undefined, error instanceof Error ? error : undefined);
       return false;
     }
   }

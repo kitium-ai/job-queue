@@ -29,7 +29,7 @@ export enum JobResult {
 /**
  * Job configuration options
  */
-export interface JobOptions {
+export type JobOptions = {
   /** Maximum number of attempts */
   attempts?: number;
   /** Unique key to deduplicate jobs (mapped to BullMQ jobId) */
@@ -57,7 +57,7 @@ export interface JobOptions {
 /**
  * Backoff strategy configuration
  */
-export interface BackoffConfig {
+export type BackoffConfig = {
   type: 'exponential' | 'fixed';
   delay: number;
   maxDelay?: number;
@@ -66,7 +66,7 @@ export interface BackoffConfig {
 /**
  * Job repeat configuration
  */
-export interface RepeatConfig {
+export type RepeatConfig = {
   pattern?: string; // cron pattern
   every?: number; // repeat every N milliseconds
   limit?: number; // maximum number of repetitions
@@ -76,14 +76,14 @@ export interface RepeatConfig {
 /**
  * Job data structure
  */
-export interface JobData {
+export type JobData = {
   [key: string]: unknown;
 }
 
 /**
  * Job execution result
  */
-export interface JobExecutionResult {
+export type JobExecutionResult = {
   status: JobResult;
   data?: unknown;
   error?: string;
@@ -94,7 +94,7 @@ export interface JobExecutionResult {
 /**
  * Job status information
  */
-export interface JobStatusInfo {
+export type JobStatusInfo = {
   id: string;
   name: string;
   status: JobStatus;
@@ -112,7 +112,7 @@ export interface JobStatusInfo {
 /**
  * Retry configuration
  */
-export interface RetryConfig {
+export type RetryConfig = {
   maxAttempts: number;
   backoffType: 'exponential' | 'fixed';
   backoffDelay: number;
@@ -122,7 +122,7 @@ export interface RetryConfig {
 /**
  * Dead Letter Queue configuration
  */
-export interface DLQConfig {
+export type DLQConfig = {
   enabled: boolean;
   queueName?: string;
   maxRetries?: number;
@@ -132,7 +132,7 @@ export interface DLQConfig {
 /**
  * Job queue configuration
  */
-export interface QueueConfig {
+export type QueueConfig = {
   name: string;
   redis?: {
     host?: string;
@@ -180,7 +180,7 @@ export type JobProcessor<T extends JobData = JobData, R = unknown> = (job: {
 /**
  * Job event handler type
  */
-export interface DLQJobInfo {
+export type DLQJobInfo = {
   id: string | null | undefined;
   name: string;
   data: JobData;
@@ -208,14 +208,14 @@ export enum QueueEvent {
 /**
  * Minimal telemetry interface to integrate with tracing providers
  */
-export interface TelemetryAdapter {
+export type TelemetryAdapter = {
   startSpan: (
     name: string,
     attributes?: Record<string, string | number | boolean | undefined>
   ) => SpanHandle;
 }
 
-export interface SpanHandle {
+export type SpanHandle = {
   setAttribute: (key: string, value: string | number | boolean) => void;
   recordException: (error: Error) => void;
   end: () => void;
@@ -224,7 +224,7 @@ export interface SpanHandle {
 /**
  * Metrics adapter interface for reporting queue metrics
  */
-export interface MetricsAdapter {
+export type MetricsAdapter = {
   increment: (name: string, value?: number, tags?: Record<string, string>) => void;
   observe: (name: string, value: number, tags?: Record<string, string>) => void;
 }
