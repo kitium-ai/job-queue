@@ -58,8 +58,7 @@ export class BullMQJobWrapper implements IJob {
   }
 
   get opts(): JobOptions {
-    // @ts-ignore - BullMQ JobsOptions and our JobOptions types are incompatible but compatible at runtime
-    return this.bullJob.opts;
+    return this.bullJob.opts as unknown as JobOptions;
   }
 
   /**
@@ -74,7 +73,7 @@ export class BullMQJobWrapper implements IJob {
    * @param percentage Progress percentage (0-100)
    */
   updateProgress(percentage: number): void {
-    this.bullJob.updateProgress(percentage);
+    void this.bullJob.updateProgress(percentage);
   }
 
   /**
@@ -91,8 +90,9 @@ export class BullMQJobWrapper implements IJob {
    * Mark job as failed
    * @param _error Error that caused the failure
    */
-  async fail(_error: Error): Promise<void> {
-    await this.bullJob.discard();
+  fail(_error: Error): Promise<void> {
+    this.bullJob.discard();
+    return Promise.resolve();
   }
 
   /**
@@ -118,10 +118,10 @@ export class BullMQJobWrapper implements IJob {
    * @param end End index
    * @param asc Sort ascending
    */
-  async getLogs(_start?: number, _end?: number, _asc?: boolean): Promise<string[]> {
+  getLogs(_start?: number, _end?: number, _asc?: boolean): Promise<string[]> {
     // BullMQ doesn't have a logs method that returns structured log objects
     // We'll return an empty array for now
-    return [];
+    return Promise.resolve([]);
   }
 
   /**

@@ -4,7 +4,7 @@
  */
 
 import { type KitiumError, NotFoundError, toKitiumError, ValidationError } from '@kitiumai/error';
-import { getLogger } from '@kitiumai/logger';
+import type { getLogger } from '@kitiumai/logger';
 
 const SOURCE = '@kitiumai/job-queue';
 

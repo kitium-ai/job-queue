@@ -17,10 +17,12 @@ export class EventHandlerRegistry {
    * @param handler Event handler function
    */
   register(event: QueueEvent, handler: JobEventHandler): void {
-    if (!this.handlers.has(event)) {
-      this.handlers.set(event, new Set());
+    let handlers = this.handlers.get(event);
+    if (!handlers) {
+      handlers = new Set<JobEventHandler>();
+      this.handlers.set(event, handlers);
     }
-    this.handlers.get(event)!.add(handler);
+    handlers.add(handler);
   }
 
   /**

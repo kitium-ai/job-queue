@@ -33,52 +33,75 @@ import type { DIContainer } from './container';
  * @param config Queue configuration
  */
 export function registerJobQueueBindings(container: DIContainer, config: QueueConfig): void {
-  // Factories
-  container.bindSingleton('LoggerFactory', () => new LoggerFactory());
-  container.bindSingleton('JobQueueErrorFactory', () => new JobQueueErrorFactory(
-    container.resolve<LoggerFactory>('LoggerFactory').createComponentLogger('job-queue-errors')
-  ));
-  container.bindSingleton('JobStatusFactory', () => new JobStatusFactory(
-    container.resolve<BullMQStateMapper>('BullMQStateMapper')
-  ));
-  container.bindSingleton('JobOptionsBuilder', () => new JobOptionsBuilder());
+  registerStateMapping(container);
+  registerFactories(container);
+  registerRetryStrategies(container);
+  registerRegistries(container);
+  registerConnections(container);
+  registerCoreServices(container, config);
+  registerAdapters(container);
+}
 
-  // State Mapping
+function registerStateMapping(container: DIContainer): void {
   container.bindSingleton('BullMQStateMapper', () => new BullMQStateMapper());
+}
 
-  // Retry Strategies (transient - new instance each time)
+function registerFactories(container: DIContainer): void {
+  container.bindSingleton('LoggerFactory', () => new LoggerFactory());
+  container.bindSingleton(
+    'JobQueueErrorFactory',
+    () =>
+      new JobQueueErrorFactory(
+        container.resolve<LoggerFactory>('LoggerFactory').createComponentLogger('job-queue-errors')
+      )
+  );
+  container.bindSingleton(
+    'JobStatusFactory',
+    () => new JobStatusFactory(container.resolve<BullMQStateMapper>('BullMQStateMapper'))
+  );
+  container.bindSingleton('JobOptionsBuilder', () => new JobOptionsBuilder());
+}
+
+function registerRetryStrategies(container: DIContainer): void {
   container.bind<IJobRetryStrategy>('ExponentialBackoffStrategy', () => new ExponentialBackoffStrategy());
   container.bind<IJobRetryStrategy>('LinearBackoffStrategy', () => new LinearBackoffStrategy());
-  container.bind<IJobRetryStrategy>('ExponentialBackoffWithJitterStrategy', () => new ExponentialBackoffWithJitterStrategy());
-
-  // Default Retry Strategy
+  container.bind<IJobRetryStrategy>(
+    'ExponentialBackoffWithJitterStrategy',
+    () => new ExponentialBackoffWithJitterStrategy()
+  );
   container.bind<IJobRetryStrategy>('DefaultRetryStrategy', () => new ExponentialBackoffStrategy());
+}
 
-  // Registries
+function registerRegistries(container: DIContainer): void {
   container.bindSingleton('EventHandlerRegistry', () => new EventHandlerRegistry());
   container.bindSingleton('JobProcessorRegistry', () => new JobProcessorRegistry());
+}
 
-  // Connection Management
+function registerConnections(container: DIContainer): void {
   container.bindSingleton('RedisConnectionManager', () => new RedisConnectionManager());
-  container.bindSingleton('QueueConnectionManager', () => new QueueConnectionManager(
-    container.resolve<RedisConnectionManager>('RedisConnectionManager')
-  ));
+  container.bindSingleton(
+    'QueueConnectionManager',
+    () =>
+      new QueueConnectionManager(container.resolve<RedisConnectionManager>('RedisConnectionManager'))
+  );
+}
 
-  // Core Services
-  container.bindSingleton('EventCoordinator', () => new EventCoordinator(
-    container.resolve<EventHandlerRegistry>('EventHandlerRegistry')
-  ));
-
+function registerCoreServices(container: DIContainer, config: QueueConfig): void {
+  container.bindSingleton(
+    'EventCoordinator',
+    () => new EventCoordinator(container.resolve<EventHandlerRegistry>('EventHandlerRegistry'))
+  );
   container.bindSingleton('JobMetricsCollector', () => new JobMetricsCollector(config.metrics));
-
   container.bindSingleton('JobTelemetryService', () => new JobTelemetryService(config.telemetry));
-
-  container.bindSingleton('JobRetryCoordinator', () => new JobRetryCoordinator(
-    container.resolve<IJobRetryStrategy>('DefaultRetryStrategy')
-  ));
+  container.bindSingleton(
+    'JobRetryCoordinator',
+    () => new JobRetryCoordinator(container.resolve<IJobRetryStrategy>('DefaultRetryStrategy'))
+  );
 
   container.bindSingleton('DLQManager', () => {
-    const queueClient = container.resolve<QueueConnectionManager>('QueueConnectionManager').getQueueClient();
+    const queueClient = container
+      .resolve<QueueConnectionManager>('QueueConnectionManager')
+      .getQueueClient();
     if (!queueClient) {
       throw new Error('Queue client not initialized');
     }
@@ -90,16 +113,22 @@ export function registerJobQueueBindings(container: DIContainer, config: QueueCo
     );
   });
 
-  container.bindSingleton('JobProcessingOrchestrator', () => new JobProcessingOrchestrator(
-    container.resolve<EventCoordinator>('EventCoordinator'),
-    container.resolve<JobMetricsCollector>('JobMetricsCollector'),
-    container.resolve<JobTelemetryService>('JobTelemetryService'),
-    container.resolve<JobRetryCoordinator>('JobRetryCoordinator'),
-    config.retry ?? { maxAttempts: 3, backoffType: 'exponential', backoffDelay: 1000 }
-  ));
+  container.bindSingleton(
+    'JobProcessingOrchestrator',
+    () =>
+      new JobProcessingOrchestrator(
+        container.resolve<EventCoordinator>('EventCoordinator'),
+        container.resolve<JobMetricsCollector>('JobMetricsCollector'),
+        container.resolve<JobTelemetryService>('JobTelemetryService'),
+        container.resolve<JobRetryCoordinator>('JobRetryCoordinator'),
+        config.retry ?? { maxAttempts: 3, backoffType: 'exponential', backoffDelay: 1000 }
+      )
+  );
 
   container.bindSingleton('JobStatusQueryService', () => {
-    const queueClient = container.resolve<QueueConnectionManager>('QueueConnectionManager').getQueueClient();
+    const queueClient = container
+      .resolve<QueueConnectionManager>('QueueConnectionManager')
+      .getQueueClient();
     if (!queueClient) {
       throw new Error('Queue client not initialized');
     }
@@ -109,8 +138,9 @@ export function registerJobQueueBindings(container: DIContainer, config: QueueCo
       container.resolve<DLQManager>('DLQManager')
     );
   });
+}
 
-  // Adapters
+function registerAdapters(container: DIContainer): void {
   container.bindSingleton('QueueAdapter', () => new BullMQAdapter());
 }
 

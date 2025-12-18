@@ -5,8 +5,7 @@
 
 import { getLogger, type IAdvancedLogger } from '@kitiumai/logger';
 
-import type { JobStatusInfo } from '../../../types';
-import { JobStatus } from '../../../types';
+import { JobStatus, type JobStatusInfo } from '../../../types';
 import type { JobStatusFactory } from '../../factories/job-status.factory';
 import type { IJob } from '../../interfaces/job.interface';
 import type { IQueueClient } from '../../interfaces/queue-client.interface';
@@ -175,7 +174,10 @@ export class JobStatusQueryService {
         JobStatus.DLQ,
       ];
 
-      const counts: Record<JobStatus, number> = {} as any;
+      const counts = Object.fromEntries(statuses.map((status) => [status, 0])) as Record<
+        JobStatus,
+        number
+      >;
 
       for (const status of statuses) {
         counts[status] = await this.getCountByStatus(status);
@@ -185,7 +187,7 @@ export class JobStatusQueryService {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error('Error getting status counts', { error: errorMessage });
-      return {} as any;
+      return {} as Record<JobStatus, number>;
     }
   }
 
@@ -196,6 +198,8 @@ export class JobStatusQueryService {
    */
   private mapStatusToStates(status: JobStatus): string[] {
     switch (status) {
+      case JobStatus.DLQ:
+        return [];
       case JobStatus.COMPLETED:
         return ['completed'];
       case JobStatus.FAILED:

@@ -4,8 +4,7 @@
  */
 
 import { getLogger } from '@kitiumai/logger';
-import type Redis from 'ioredis';
-import ioredis from 'ioredis';
+import ioredis, { type RedisOptions } from 'ioredis';
 
 import type { IQueueAdapter } from '../../../core/interfaces/queue-adapter.interface';
 import type { IQueueClient } from '../../../core/interfaces/queue-client.interface';
@@ -21,7 +20,7 @@ import { BullMQWorker } from './bullmq-worker';
  */
 export class BullMQAdapter implements IQueueAdapter {
   readonly name = 'bullmq';
-  private redisConnection: Redis | null = null;
+  private redisConnection: InstanceType<typeof ioredis> | null = null;
   private readonly logger: ReturnType<typeof getLogger>;
 
   constructor() {
@@ -60,38 +59,36 @@ export class BullMQAdapter implements IQueueAdapter {
    * @param config Queue configuration
    * @returns Redis connection instance
    */
-  private getOrCreateRedisConnection(config: QueueConfig): Redis {
+  private getOrCreateRedisConnection(config: QueueConfig): InstanceType<typeof ioredis> {
     if (this.redisConnection) {
       return this.redisConnection;
     }
 
-    try {
-      const redisConfig = config.redis ?? {};
-      const redisConnectionObj = {
-        host: redisConfig.host ?? 'localhost',
-        port: redisConfig.port ?? 6379,
-        password: redisConfig.password,
-        username: redisConfig.username,
-        db: redisConfig.db ?? 0,
-        retryStrategy: redisConfig.retryStrategy,
-        tls: redisConfig.tls,
-        enableReadyCheck: redisConfig.enableReadyCheck ?? true,
-        maxRetriesPerRequest: redisConfig.maxRetriesPerRequest,
-        connectTimeout: redisConfig.connectTimeout ?? 10000,
-      } as unknown as { host: string; port: number };
-      this.redisConnection = new ioredis(redisConnectionObj);
+    const redisConfig = config.redis ?? {};
+    this.redisConnection = new ioredis(this.buildRedisConnectionOptions(redisConfig));
+    this.logger.info('Redis connection established', {
+      host: redisConfig.host ?? 'localhost',
+      port: redisConfig.port ?? 6379,
+    });
+    return this.redisConnection;
+  }
 
-      this.logger.info('Redis connection established', {
-        host: redisConfig.host ?? 'localhost',
-        port: redisConfig.port ?? 6379,
-      });
-
-      return this.redisConnection;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error('Failed to create Redis connection', { error: errorMessage });
-      throw error;
-    }
+  private buildRedisConnectionOptions(
+    redisConfig: QueueConfig['redis'] | undefined
+  ): RedisOptions {
+    const cfg = redisConfig ?? {};
+    return {
+      host: cfg.host ?? 'localhost',
+      port: cfg.port ?? 6379,
+      password: cfg.password,
+      username: cfg.username,
+      db: cfg.db ?? 0,
+      retryStrategy: cfg.retryStrategy,
+      tls: cfg.tls,
+      enableReadyCheck: cfg.enableReadyCheck ?? true,
+      maxRetriesPerRequest: cfg.maxRetriesPerRequest,
+      connectTimeout: cfg.connectTimeout ?? 10000,
+    };
   }
 
   /**

@@ -47,7 +47,7 @@ export class JobStatusFactory {
    * @param jobs Array of jobs
    * @returns Array of JobStatusInfo objects
    */
-  async createStatusInfos(jobs: IJob[]): Promise<JobStatusInfo[]> {
+  createStatusInfos(jobs: IJob[]): Promise<JobStatusInfo[]> {
     return Promise.all(jobs.map((job) => this.createStatusInfo(job)));
   }
 }

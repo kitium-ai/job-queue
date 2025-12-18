@@ -1,6 +1,6 @@
 import { NotFoundError, ValidationError } from '@kitiumai/error';
 import { getLogger, type IAdvancedLogger } from '@kitiumai/logger';
-import { type Job as BullJob, type JobsOptions, Queue, Worker } from 'bullmq';
+import { type Job as BullJob, type JobsOptions, type JobType, Queue, Worker } from 'bullmq';
 import ioredis from 'ioredis';
 
 import {
@@ -63,7 +63,7 @@ export class JobQueue {
 
   private createRedisConnection(config: QueueConfig): InstanceType<typeof ioredis> {
     const redisConfig = config.redis ?? {};
-    const redisConnectionObj = {
+    const redisConnectionObject = {
       host: redisConfig.host ?? 'localhost',
       port: redisConfig.port ?? 6379,
       password: redisConfig.password,
@@ -75,7 +75,7 @@ export class JobQueue {
       tls: redisConfig.tls,
       connectTimeout: redisConfig.connectTimeout ?? 2000,
     } as unknown as { host: string; port: number };
-    return new ioredis(redisConnectionObj);
+    return new ioredis(redisConnectionObject);
   }
 
   /**
@@ -509,12 +509,11 @@ export class JobQueue {
     }
 
     const bullmqStatuses = this.getBullmqStatusesForJobStatus(status);
-    // @ts-ignore - BullMQ type definitions use different state type
     const jobs = (await this.queue.getJobs(bullmqStatuses, 0, limit - 1)) as BullJob[];
     return this.toJobStatusInfos(jobs);
   }
 
-  private getBullmqStatusesForJobStatus(status: Exclude<JobStatus, JobStatus.DLQ>): string[] {
+  private getBullmqStatusesForJobStatus(status: Exclude<JobStatus, JobStatus.DLQ>): JobType[] {
     switch (status) {
       case JobStatus.ACTIVE:
         return ['active'];

@@ -23,25 +23,25 @@ export class BullMQStateMapper implements IJobStateMapper {
    * @param state BullMQ state string
    * @returns Corresponding JobStatus
    */
-  async toJobStatus(state: string): Promise<JobStatus> {
+  toJobStatus(state: string): Promise<JobStatus> {
     switch (state) {
       case 'completed':
-        return JobStatus.COMPLETED;
+        return Promise.resolve(JobStatus.COMPLETED);
       case 'failed':
-        return JobStatus.FAILED;
+        return Promise.resolve(JobStatus.FAILED);
       case 'active':
-        return JobStatus.ACTIVE;
+        return Promise.resolve(JobStatus.ACTIVE);
       case 'waiting':
-        return JobStatus.WAITING;
+        return Promise.resolve(JobStatus.WAITING);
       case 'paused':
-        return JobStatus.PAUSED;
+        return Promise.resolve(JobStatus.PAUSED);
       case 'delayed':
-        return JobStatus.DELAYED;
+        return Promise.resolve(JobStatus.DELAYED);
       case 'pending':
-        return JobStatus.PENDING;
+        return Promise.resolve(JobStatus.PENDING);
       default:
         this.logger.warn('Unknown BullMQ state', { state });
-        return JobStatus.PENDING;
+        return Promise.resolve(JobStatus.PENDING);
     }
   }
 

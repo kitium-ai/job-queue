@@ -60,72 +60,90 @@ export class JobProcessingOrchestrator {
     const startTime = Date.now();
 
     try {
-      // Emit job started event
-      await this.eventCoordinator.emitJobStarted(job);
-      this.metricsCollector.recordJobStarted(job);
-
-      this.logger.debug('Starting job processing', {
-        jobId: job.id,
-        jobName: job.name,
-        attempt: job.attemptsMade + 1,
-      });
-
-      // Get processor for this job
-      const processor = this.processorRegistry.get(job.name);
-      if (!processor) {
-        const error = new Error(`No processor registered for job "${job.name}"`);
-        this.logger.error('Processor not found', {
-          jobId: job.id,
-          jobName: job.name,
-        });
-        throw error;
-      }
-
-      // Execute job processor
-      const result = await processor({
-        id: job.id,
-        name: job.name,
-        data: job.data,
-        attempts: job.attemptsMade,
-        progress: (percentage: number) => {
-          job.updateProgress(percentage);
-          this.eventCoordinator.emitJobProgress(job).catch((error) => {
-            this.logger.error('Error emitting job progress event', {
-              error: error instanceof Error ? error.message : String(error),
-            });
-          });
-        },
-      });
-
-      // Job completed successfully
-      await this.eventCoordinator.emitJobCompleted(job, result);
-      this.metricsCollector.recordJobCompleted(job, startTime);
-
-      this.logger.info('Job completed successfully', {
-        jobId: job.id,
-        jobName: job.name,
-        duration: Date.now() - startTime,
-      });
-
+      await this.onJobStarted(job);
+      const processor = this.getProcessorOrThrow(job);
+      const result = await this.executeProcessor(job, processor);
+      await this.onJobCompleted(job, result, startTime);
       span.end();
       return result;
     } catch (error) {
       const error_ = error instanceof Error ? error : new Error(String(error));
       span.recordException(error_);
       span.end();
-
-      this.logger.error('Job processing failed', {
-        jobId: job.id,
-        jobName: job.name,
-        error: error_.message,
-        attempt: job.attemptsMade + 1,
-      });
-
-      // Handle job failure (retry or DLQ)
-      await this.handleJobFailure(job, error_);
-
+      await this.onJobFailed(job, error_);
       throw error_;
     }
+  }
+
+  private async onJobStarted(job: IJob): Promise<void> {
+    await this.eventCoordinator.emitJobStarted(job);
+    this.metricsCollector.recordJobStarted(job);
+    this.logger.debug('Starting job processing', {
+      jobId: job.id,
+      jobName: job.name,
+      attempt: job.attemptsMade + 1,
+    });
+  }
+
+  private getProcessorOrThrow(job: IJob): JobProcessor<JobData, unknown> {
+    const processor = this.processorRegistry.get(job.name);
+    if (processor) {
+      return processor;
+    }
+
+    this.logger.error('Processor not found', { jobId: job.id, jobName: job.name });
+    throw new Error(`No processor registered for job "${job.name}"`);
+  }
+
+  private executeProcessor(
+    job: IJob,
+    processor: JobProcessor<JobData, unknown>
+  ): Promise<unknown> {
+    const progress = this.createProgressReporter(job);
+    return processor({
+      id: job.id,
+      name: job.name,
+      data: job.data,
+      attempts: job.attemptsMade,
+      progress,
+    });
+  }
+
+  private createProgressReporter(job: IJob): (percentage: number) => void {
+    return (percentage: number) => {
+      job.updateProgress(percentage);
+      void this.emitJobProgress(job);
+    };
+  }
+
+  private async emitJobProgress(job: IJob): Promise<void> {
+    try {
+      await this.eventCoordinator.emitJobProgress(job);
+    } catch (error) {
+      this.logger.error('Error emitting job progress event', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async onJobCompleted(job: IJob, result: unknown, startTime: number): Promise<void> {
+    await this.eventCoordinator.emitJobCompleted(job, result);
+    this.metricsCollector.recordJobCompleted(job, startTime);
+    this.logger.info('Job completed successfully', {
+      jobId: job.id,
+      jobName: job.name,
+      duration: Date.now() - startTime,
+    });
+  }
+
+  private async onJobFailed(job: IJob, error: Error): Promise<void> {
+    this.logger.error('Job processing failed', {
+      jobId: job.id,
+      jobName: job.name,
+      error: error.message,
+      attempt: job.attemptsMade + 1,
+    });
+    await this.handleJobFailure(job, error);
   }
 
   /**

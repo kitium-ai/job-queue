@@ -3,7 +3,7 @@
  */
 
 import { getLogger } from '@kitiumai/logger';
-import { Worker as BullWorker } from 'bullmq';
+import { Worker as BullWorker, type WorkerOptions } from 'bullmq';
 import type Redis from 'ioredis';
 
 import type { IJob } from '../../../core/interfaces/job.interface';
@@ -32,16 +32,19 @@ export class BullMQWorker implements IQueueWorker {
    */
   process(handler: (job: IJob) => Promise<unknown>): void {
     if (!this.worker) {
-      // @ts-ignore - BullMQ type definitions are incompatible with our typed config
-      this.worker = new BullWorker<JobData>(this.config.name, async (bullJob) => {
-        const job = new BullMQJobWrapper(bullJob);
-        return handler(job);
-      }, {
-        connection: this.redisConnection,
-        concurrency: this.config.worker?.concurrency ?? 5,
-        limiter: this.config.worker?.limiter,
-        settings: this.config.settings as any,
-      });
+      this.worker = new BullWorker<JobData>(
+        this.config.name,
+        (bullJob) => {
+          const job = new BullMQJobWrapper(bullJob);
+          return handler(job);
+        },
+        {
+          connection: this.redisConnection,
+          concurrency: this.config.worker?.concurrency ?? 5,
+          limiter: this.config.worker?.limiter,
+          settings: this.config.settings as WorkerOptions['settings'],
+        }
+      );
 
       this.logger.info('Worker registered', { queue: this.config.name });
     }
@@ -69,14 +72,15 @@ export class BullMQWorker implements IQueueWorker {
   /**
    * Resume worker (start processing jobs again)
    */
-  async resume(): Promise<void> {
+  resume(): Promise<void> {
     if (!this.worker) {
-      return;
+      return Promise.resolve();
     }
 
     try {
-      await this.worker.resume();
+      this.worker.resume();
       this.logger.info('Worker resumed');
+      return Promise.resolve();
     } catch (error) {
       this.logger.error('Failed to resume worker', {
         error: error instanceof Error ? error.message : String(error),
@@ -116,10 +120,15 @@ export class BullMQWorker implements IQueueWorker {
       return;
     }
 
-    this.worker.on(event as any, (job: any, error: any) => {
-      const wrappedJob = job ? new BullMQJobWrapper(job) : undefined;
-      handler(wrappedJob, error);
-    });
+    type WorkerEventName = Parameters<BullWorker<JobData>['on']>[0];
+    type WorkerListener = Parameters<BullWorker<JobData>['on']>[1];
+    this.worker.on(
+      event as WorkerEventName,
+      ((job: unknown, error: unknown) => {
+        const wrappedJob = job ? new BullMQJobWrapper(job as never) : undefined;
+        handler(wrappedJob, error instanceof Error ? error : undefined);
+      }) as unknown as WorkerListener
+    );
   }
 
   /**
@@ -133,10 +142,15 @@ export class BullMQWorker implements IQueueWorker {
       return;
     }
 
-    this.worker.once(event as any, (job: any, error: any) => {
-      const wrappedJob = job ? new BullMQJobWrapper(job) : undefined;
-      handler(wrappedJob, error);
-    });
+    type WorkerEventName = Parameters<BullWorker<JobData>['once']>[0];
+    type WorkerListener = Parameters<BullWorker<JobData>['once']>[1];
+    this.worker.once(
+      event as WorkerEventName,
+      ((job: unknown, error: unknown) => {
+        const wrappedJob = job ? new BullMQJobWrapper(job as never) : undefined;
+        handler(wrappedJob, error instanceof Error ? error : undefined);
+      }) as unknown as WorkerListener
+    );
   }
 
   /**
@@ -149,7 +163,9 @@ export class BullMQWorker implements IQueueWorker {
       return;
     }
 
-    this.worker.off(event as any, handler as any);
+    type WorkerEventName = Parameters<BullWorker<JobData>['off']>[0];
+    type WorkerListener = Parameters<BullWorker<JobData>['off']>[1];
+    this.worker.off(event as WorkerEventName, handler as unknown as WorkerListener);
   }
 
   /**

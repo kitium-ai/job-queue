@@ -47,7 +47,7 @@ export class EventCoordinator {
    * @param job The job that was added
    */
   async emitJobAdded(job: IJob): Promise<void> {
-    await this.emit(QueueEvent.JOB_ADDED, job, undefined);
+    await this.emit(QueueEvent.JOB_ADDED, job);
   }
 
   /**
@@ -55,7 +55,7 @@ export class EventCoordinator {
    * @param job The job that started
    */
   async emitJobStarted(job: IJob): Promise<void> {
-    await this.emit(QueueEvent.JOB_STARTED, job, undefined);
+    await this.emit(QueueEvent.JOB_STARTED, job);
   }
 
   /**
@@ -65,7 +65,7 @@ export class EventCoordinator {
    */
   async emitJobCompleted(job: IJob, result?: unknown): Promise<void> {
     this.logger.debug('Job completed', { jobId: job.id, jobName: job.name, result });
-    await this.emit(QueueEvent.JOB_COMPLETED, job, undefined);
+    await this.emit(QueueEvent.JOB_COMPLETED, job);
   }
 
   /**
@@ -103,7 +103,7 @@ export class EventCoordinator {
    */
   async emitJobStalled(job: IJob): Promise<void> {
     this.logger.warn('Job stalled', { jobId: job.id, jobName: job.name });
-    await this.emit(QueueEvent.JOB_STALLED, job, undefined);
+    await this.emit(QueueEvent.JOB_STALLED, job);
   }
 
   /**
@@ -112,7 +112,7 @@ export class EventCoordinator {
    */
   async emitJobProgress(job: IJob): Promise<void> {
     this.logger.debug('Job progress', { jobId: job.id, progress: job.getProgress() });
-    await this.emit(QueueEvent.JOB_PROGRESS, job, undefined);
+    await this.emit(QueueEvent.JOB_PROGRESS, job);
   }
 
   /**
@@ -121,11 +121,15 @@ export class EventCoordinator {
    * @param error The error that caused DLQ move
    */
   async emitJobDLQ(job: IJob, error: Error): Promise<void> {
-    this.logger.error('Job moved to DLQ', {
-      jobId: job.id,
-      jobName: job.name,
-      error: error.message,
-    });
+    this.logger.error(
+      'Job moved to DLQ',
+      {
+        jobId: job.id,
+        jobName: job.name,
+        error: error.message,
+      },
+      error
+    );
     await this.emit(QueueEvent.JOB_DLQ, job, error);
   }
 
@@ -134,7 +138,7 @@ export class EventCoordinator {
    * @param error The error
    */
   async emitQueueError(error: Error): Promise<void> {
-    this.logger.error('Queue error', { error: error.message });
+    this.logger.error('Queue error', { error: error.message }, error);
     await this.emit(QueueEvent.QUEUE_ERROR, undefined, error);
   }
 
@@ -146,8 +150,8 @@ export class EventCoordinator {
    */
   private async emit(
     event: QueueEvent,
-    job: IJob | undefined,
-    error: Error | undefined
+    job?: IJob,
+    error?: Error
   ): Promise<void> {
     const handlers = this.registry.getHandlers(event);
 
@@ -164,7 +168,11 @@ export class EventCoordinator {
       } catch (handlerError) {
         const errorMessage =
           handlerError instanceof Error ? handlerError.message : String(handlerError);
-        this.logger.error(`Error in ${event} handler`, { error: errorMessage });
+        this.logger.error(
+          `Error in ${event} handler`,
+          { error: errorMessage },
+          handlerError instanceof Error ? handlerError : undefined
+        );
       }
     }
   }

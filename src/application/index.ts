@@ -4,3 +4,4 @@
  */
 
 export * from './di/index';
+export * from './facades/index';

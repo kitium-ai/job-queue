@@ -19,6 +19,7 @@ import type { RedisConnectionManager } from './redis-connection-manager';
  * Manager for queue client and worker lifecycle
  */
 export class QueueConnectionManager {
+  private static readonly queueNotConnectedMessage = 'Queue not connected. Call connect() first.';
   private queueClient: IQueueClient | null = null;
   private workers: IQueueWorker[] = [];
   private adapter: IQueueAdapter | null = null;
@@ -83,7 +84,7 @@ export class QueueConnectionManager {
     options?: JobOptions
   ): Promise<string> {
     if (!this.queueClient) {
-      throw new Error('Queue not connected. Call connect() first.');
+      throw new Error(QueueConnectionManager.queueNotConnectedMessage);
     }
 
     try {
@@ -102,9 +103,9 @@ export class QueueConnectionManager {
    * @param jobId Job ID
    * @returns Job or null if not found
    */
-  async getJob(jobId: string): Promise<IJob | null> {
+  getJob(jobId: string): Promise<IJob | null> {
     if (!this.queueClient) {
-      throw new Error('Queue not connected. Call connect() first.');
+      throw new Error(QueueConnectionManager.queueNotConnectedMessage);
     }
 
     return this.queueClient.getJob(jobId);
@@ -117,9 +118,9 @@ export class QueueConnectionManager {
    * @param end End index
    * @returns Array of jobs
    */
-  async getJobsByState(state: string, start?: number, end?: number): Promise<IJob[]> {
+  getJobsByState(state: string, start?: number, end?: number): Promise<IJob[]> {
     if (!this.queueClient) {
-      throw new Error('Queue not connected. Call connect() first.');
+      throw new Error(QueueConnectionManager.queueNotConnectedMessage);
     }
 
     return this.queueClient.getJobsByState(state, start, end);
@@ -130,9 +131,9 @@ export class QueueConnectionManager {
    * @param state Job state
    * @returns Count of jobs
    */
-  async getCountByState(state: string): Promise<number> {
+  getCountByState(state: string): Promise<number> {
     if (!this.queueClient) {
-      throw new Error('Queue not connected. Call connect() first.');
+      throw new Error(QueueConnectionManager.queueNotConnectedMessage);
     }
 
     return this.queueClient.getCountByState(state);
@@ -143,7 +144,7 @@ export class QueueConnectionManager {
    */
   async pause(): Promise<void> {
     if (!this.queueClient) {
-      throw new Error('Queue not connected. Call connect() first.');
+      throw new Error(QueueConnectionManager.queueNotConnectedMessage);
     }
 
     try {
@@ -161,7 +162,7 @@ export class QueueConnectionManager {
    */
   async resume(): Promise<void> {
     if (!this.queueClient) {
-      throw new Error('Queue not connected. Call connect() first.');
+      throw new Error(QueueConnectionManager.queueNotConnectedMessage);
     }
 
     try {
@@ -178,9 +179,9 @@ export class QueueConnectionManager {
    * Check if queue is paused
    * @returns True if paused
    */
-  async isPaused(): Promise<boolean> {
+  isPaused(): Promise<boolean> {
     if (!this.queueClient) {
-      throw new Error('Queue not connected. Call connect() first.');
+      throw new Error(QueueConnectionManager.queueNotConnectedMessage);
     }
 
     return this.queueClient.isPaused();
@@ -197,9 +198,10 @@ export class QueueConnectionManager {
     }
 
     try {
-      const worker = this.adapter.createWorker(config, async (job) => {
+      const worker = this.adapter.createWorker(config, (job) => {
         // This handler will be overridden by JobProcessingOrchestrator
         this.logger.debug('Job processed', { jobId: job.id });
+        return Promise.resolve();
       });
 
       this.workers.push(worker);

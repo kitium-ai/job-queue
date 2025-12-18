@@ -31,7 +31,7 @@ export class JobRetryCoordinator {
    * @param config Retry configuration
    * @returns True if job will be retried, false if DLQ
    */
-  async handleFailure(job: IJob, error: Error, config: RetryConfig): Promise<boolean> {
+  handleFailure(job: IJob, error: Error, config: RetryConfig): Promise<boolean> {
     try {
       const shouldRetry = this.strategy.shouldRetry(job, error, config);
 
@@ -46,7 +46,7 @@ export class JobRetryCoordinator {
         });
 
         // Job will be retried by the queue infrastructure
-        return true;
+        return Promise.resolve(true);
       } else {
         this.logger.warn('Job exceeded max retry attempts', {
           jobId: job.id,
@@ -57,12 +57,12 @@ export class JobRetryCoordinator {
         });
 
         // Job should go to DLQ (caller handles this)
-        return false;
+        return Promise.resolve(false);
       }
     } catch (error_) {
       const errorMessage = error_ instanceof Error ? error_.message : String(error_);
       this.logger.error('Error in retry coordinator', { jobId: job.id, error: errorMessage });
-      throw error_;
+      return Promise.reject(error_);
     }
   }
 

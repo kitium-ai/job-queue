@@ -191,8 +191,8 @@ export class DLQManager {
 
       let replayed = 0;
       for (const dlqJob of dlqJobs) {
-        const success = await this.replayJob(dlqJob.id ?? '');
-        if (success) {
+        const isSuccess = await this.replayJob(dlqJob.id ?? '');
+        if (isSuccess) {
           replayed++;
         }
       }

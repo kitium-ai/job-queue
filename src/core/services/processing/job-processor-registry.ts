@@ -14,7 +14,7 @@ const SOURCE = '@kitiumai/job-queue';
  * Registry for managing job processors
  */
 export class JobProcessorRegistry {
-  private readonly processors = new Map<string, JobProcessor<any, any>>();
+  private readonly processors = new Map<string, JobProcessor<JobData, unknown>>();
   private readonly logger: ReturnType<typeof getLogger>;
 
   constructor() {
@@ -40,7 +40,7 @@ export class JobProcessorRegistry {
       throw error;
     }
 
-    this.processors.set(jobName, processor);
+    this.processors.set(jobName, processor as JobProcessor<JobData, unknown>);
     this.logger.debug('Job processor registered', { jobName });
   }
 
@@ -50,7 +50,7 @@ export class JobProcessorRegistry {
    * @returns Processor function or undefined
    */
   get<T extends JobData, R = unknown>(jobName: string): JobProcessor<T, R> | undefined {
-    return this.processors.get(jobName);
+    return this.processors.get(jobName) as JobProcessor<T, R> | undefined;
   }
 
   /**
@@ -68,11 +68,11 @@ export class JobProcessorRegistry {
    * @returns True if processor was removed
    */
   unregister(jobName: string): boolean {
-    const removed = this.processors.delete(jobName);
-    if (removed) {
+    const isRemoved = this.processors.delete(jobName);
+    if (isRemoved) {
       this.logger.debug('Job processor unregistered', { jobName });
     }
-    return removed;
+    return isRemoved;
   }
 
   /**

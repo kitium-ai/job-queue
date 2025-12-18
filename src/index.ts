@@ -76,3 +76,81 @@ export { BullMQStateMapper } from './infrastructure/adapters/bullmq/bullmq-state
 // Dependency Injection
 export { registerJobQueueBindings, registerJobQueueTestBindings } from './application/di/bindings';
 export { DIContainer, globalContainer } from './application/di/container';
+
+// Configuration
+export { QueueConfigurationLoader, QueueConfigurationValidator } from './infrastructure/config/index';
+
+// Backward Compatibility Facade
+export { JobQueueFacade } from './application/facades/index';
+
+// Phase 1: Exactly-Once Delivery & FIFO Queues
+export type {
+  DeduplicationContext,
+  IDeduplicationManager,
+  IdempotencyRecord,
+  IIdempotencyManager,
+} from './core/interfaces/delivery-guarantee.interface';
+export { DeliveryGuarantee } from './core/interfaces/delivery-guarantee.interface';
+export type {
+  EncryptedData,
+  EncryptionKeyConfig,
+  IEncryptionManager,
+} from './core/interfaces/encryption.interface';
+export { EncryptionAlgorithm } from './core/interfaces/encryption.interface';
+export type {
+  FIFOQueueConfig,
+  IFIFOQueueManager,
+  MessageGroupConfig,
+} from './core/interfaces/fifo-queue.interface';
+
+// Phase 1 Services
+export { EncryptionManager } from './infrastructure/services/encryption.manager';
+export { FIFOQueueManager } from './infrastructure/services/fifo-queue.manager';
+export { IdempotencyManager } from './infrastructure/services/idempotency.manager';
+
+// Phase 2: Job Chaining, Circuit Breaker & Webhooks
+export type {
+  CircuitBreakerConfig,
+  CircuitBreakerStats,
+  ICircuitBreaker,
+  ICircuitBreakerManager,
+} from './core/interfaces/circuit-breaker.interface';
+export { CircuitBreakerState } from './core/interfaces/circuit-breaker.interface';
+export type {
+  IJobChainManager,
+  JobChainConfig,
+  JobDependency,
+  WorkflowExecutionResult,
+  WorkflowStep,
+} from './core/interfaces/job-chain.interface';
+export type {
+  IWebhookManager,
+  WebhookConfig,
+  WebhookDeliveryAttempt,
+  WebhookPayload,
+} from './core/interfaces/webhook.interface';
+export { WebhookDeliveryStrategy,WebhookEventType } from './core/interfaces/webhook.interface';
+
+// Phase 2 Services
+export { CircuitBreaker, CircuitBreakerManager } from './infrastructure/services/circuit-breaker.manager';
+export { JobChainManager } from './infrastructure/services/job-chain.manager';
+export { WebhookManager } from './infrastructure/services/webhook.manager';
+
+// Phase 3: Global Queue & Access Control
+export type {
+  AccessControlEntry,
+  IAccessControlManager,
+  QueuePermissions,
+  TenantConfig,
+} from './core/interfaces/access-control.interface';
+export { QueueRole } from './core/interfaces/access-control.interface';
+export type {
+  GlobalQueueConfig,
+  IGlobalQueueManager,
+  RegionalStats,
+  RegionConfig,
+} from './core/interfaces/global-queue.interface';
+
+// Phase 3 Services
+export { AccessControlManager } from './infrastructure/services/access-control.manager';
+export { GlobalQueueManager } from './infrastructure/services/global-queue.manager';

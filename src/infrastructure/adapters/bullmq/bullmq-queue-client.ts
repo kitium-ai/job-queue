@@ -3,7 +3,7 @@
  */
 
 import { getLogger } from '@kitiumai/logger';
-import { Queue as BullQueue } from 'bullmq';
+import { type JobType, Queue as BullQueue, type QueueOptions } from 'bullmq';
 import type Redis from 'ioredis';
 
 import type { IJob } from '../../../core/interfaces/job.interface';
@@ -17,17 +17,17 @@ import { BullMQJobWrapper } from './bullmq-job.wrapper';
  * BullMQ queue client implementation
  */
 export class BullMQQueueClient implements IQueueClient {
-  private readonly queue: BullQueue<JobData>;
+  private readonly queue: BullQueue<JobData, unknown, string, JobData, unknown, string>;
   private readonly logger: ReturnType<typeof getLogger>;
 
   constructor(config: QueueConfig, redisConnection: Redis) {
     this.logger = getLogger();
-    // @ts-ignore - BullMQ type definitions are incompatible with our typed config
-    this.queue = new BullQueue<JobData>(config.name, {
+    const queueOptions: QueueOptions = {
       connection: redisConnection,
-      defaultJobOptions: config.defaultJobOptions,
-      settings: config.settings as any,
-    });
+      defaultJobOptions: config.defaultJobOptions as QueueOptions['defaultJobOptions'],
+      settings: config.settings as QueueOptions['settings'],
+    };
+    this.queue = new BullQueue<JobData>(config.name, queueOptions);
   }
 
   /**
@@ -85,8 +85,7 @@ export class BullMQQueueClient implements IQueueClient {
    */
   async getJobsByState(state: string, start?: number, end?: number): Promise<IJob[]> {
     try {
-      // @ts-ignore - BullMQ type definitions use different state type
-      const jobs = await this.queue.getJobs([state], start ?? 0, end ?? -1);
+      const jobs = await this.queue.getJobs([state as JobType], start ?? 0, end ?? -1);
       return jobs.map((job) => new BullMQJobWrapper(job));
     } catch (error) {
       this.logger.error('Failed to get jobs by state', {
@@ -150,8 +149,7 @@ export class BullMQQueueClient implements IQueueClient {
    */
   async getCountByState(state: string): Promise<number> {
     try {
-      // @ts-ignore - BullMQ type definitions use different state type
-      const count = await this.queue.getJobCountByTypes(state);
+      const count = await this.queue.getJobCountByTypes(state as JobType);
       return count;
     } catch (error) {
       this.logger.error('Failed to get job count', {
@@ -185,8 +183,8 @@ export class BullMQQueueClient implements IQueueClient {
    */
   async clean(grace: number, limit: number, type?: string): Promise<void> {
     try {
-      // @ts-ignore - BullMQ type definitions use different state type
-      await this.queue.clean(grace, limit, type);
+      type CleanType = Parameters<BullQueue<JobData>['clean']>[2];
+      await this.queue.clean(grace, limit, type as CleanType);
       this.logger.info('Queue cleaned', { grace, limit, type });
     } catch (error) {
       this.logger.error('Failed to clean queue', {
@@ -200,7 +198,7 @@ export class BullMQQueueClient implements IQueueClient {
    * Get the underlying BullMQ queue
    * @returns The underlying queue instance
    */
-  getUnderlyingQueue(): BullQueue<JobData> {
+  getUnderlyingQueue(): BullQueue<JobData, unknown, string, JobData, unknown, string> {
     return this.queue;
   }
 }
