@@ -63,7 +63,7 @@ export class JobQueue {
 
   private createRedisConnection(config: QueueConfig): InstanceType<typeof ioredis> {
     const redisConfig = config.redis ?? {};
-    return new ioredis({
+    const redisConnectionObj = {
       host: redisConfig.host ?? 'localhost',
       port: redisConfig.port ?? 6379,
       password: redisConfig.password,
@@ -74,7 +74,8 @@ export class JobQueue {
       enableReadyCheck: redisConfig.enableReadyCheck ?? true,
       tls: redisConfig.tls,
       connectTimeout: redisConfig.connectTimeout ?? 2000,
-    });
+    } as unknown as { host: string; port: number };
+    return new ioredis(redisConnectionObj);
   }
 
   /**
@@ -508,6 +509,7 @@ export class JobQueue {
     }
 
     const bullmqStatuses = this.getBullmqStatusesForJobStatus(status);
+    // @ts-ignore - BullMQ type definitions use different state type
     const jobs = (await this.queue.getJobs(bullmqStatuses, 0, limit - 1)) as BullJob[];
     return this.toJobStatusInfos(jobs);
   }
